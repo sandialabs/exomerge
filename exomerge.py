@@ -369,7 +369,7 @@ class ExodusModel(object):
             exodus_text = exodus_text.replace('. ', '.  ')
             exodus_text = exodus_text.replace('.   ', '.  ')
             exodus_text = textwrap.fill(exodus_text, width=79)
-            print('\n%s\n' % exodus_text)
+            print('\n{}\n'.format(exodus_text))
             SHOW_BANNER = False
         # list of [x, y, z] coordinates for each node
         self.nodes = []
@@ -597,6 +597,8 @@ class ExodusModel(object):
         [element_block_id] = self._format_element_block_id_list(
             [element_block_id],
             single=True)
+        self._input_check(element_indices, [list, 0, int])
+        # get element block information
         element_block = self.element_blocks[element_block_id]
         element_count = self.get_element_count(element_block_id)
         # if not deleting any indices, we're done
@@ -640,7 +642,7 @@ class ExodusModel(object):
         del invalid_indices
         # create list of nodes used by elements to delete
         nodes_per_element = self.get_nodes_per_element(element_block_id)
-        connectivity = self.get_element_block_connectivity(element_block_id)
+        connectivity = self.get_connectivity(element_block_id)
         used_nodes = []
         for element_index in indices_to_delete:
             used_nodes.extend(
@@ -726,8 +728,8 @@ class ExodusModel(object):
             single=True)
         if new_element_block_id is not None:
             if self.element_block_exists(new_element_block_id):
-                self._exists_warning(new_element_block_id, 'element block')
-        timestep_index = self.timesteps.index(timestep)
+                self._exists_error(new_element_block_id, 'element block')
+        # timestep_index = self.timesteps.index(timestep) # DEBUG
         # create a temporary field name on these elements
         name = self._new_element_field_name()
         # evaluate the expression
@@ -736,7 +738,9 @@ class ExodusModel(object):
                                      timesteps=[timestep])
         # go through each element block and delete elements
         for id_ in element_block_ids:
-            values = self.element_blocks[id_][-1][name][timestep_index]
+            values = self.get_element_field_values(name,
+                                                   element_block_id=id_,
+                                                   timestep=timestep)
             # if we're saving elements, duplicate the block, and delete the
             # ones we're keeping
             if new_element_block_id is not None:
@@ -808,7 +812,7 @@ class ExodusModel(object):
                 for values in all_values:
                     self._assert(len(values) == node_count)
             # verify self.element_blocks
-            for info, connectivity, fields in self.element_blocks.values():
+            for _, info, connectivity, fields in self.element_blocks.values():
                 self._assert(len(info) == 4)
                 self._assert(len(connectivity) == info[1] * info[2])
                 if connectivity:
@@ -819,7 +823,7 @@ class ExodusModel(object):
                     for values in all_values:
                         self._assert(len(values) == info[1])
             # verify self.node_sets
-            for members, fields in self.node_sets.values():
+            for _, members, fields in self.node_sets.values():
                 member_count = len(members)
                 if members:
                     self._assert(min(members) >= 0)
@@ -831,8 +835,8 @@ class ExodusModel(object):
             # verify self.side_sets
             element_count = {
                 id_: info[1]
-                for id_, (info, _, _) in self.element_blocks.items()}
-            for members, fields in self.side_sets.values():
+                for id_, (_, info, _, _) in self.element_blocks.items()}
+            for _, members, fields in self.side_sets.values():
                 member_count = len(members)
                 if members:
                     self._assert(min(x[1] for x in members) >= 0)
@@ -1200,6 +1204,10 @@ class ExodusModel(object):
             else:
                 new_id_list.append(id_)
         id_list = new_id_list
+        # now apply the translation list
+        if translator:
+            id_list = [translator[x] if x in translator else x
+                       for x in id_list]
         # for ids with a wildcard, find all that match
         if id_list and isinstance(id_list[0], basestring):
             for i in reversed(xrange(len(id_list))):
@@ -1388,11 +1396,19 @@ class ExodusModel(object):
             empty_list_okay=False)
         members = []
         for id_ in element_block_ids:
-            mapping = self._get_face_mapping(self.element_blocks[id_][0][0])
-            for i in range(self.element_blocks[id_][0][1]):
-                for f in range(len(mapping)):
-                    members.append((id_, i, f))
+            mapping = self._get_face_mapping_from_id(id_)
+            element_count = self.get_element_count(id_)
+            for i in xrange(element_count):
+                members.extend([(id_, i, f)
+                                for f in range(len(mapping))])
         return members
+
+    def _get_block_info(self, element_block_id):
+        """Return the info of an element block."""
+        element_block_id = self._format_element_block_id_list(
+            element_block_id,
+            single=True)
+        return self.element_blocks[element_block_id][1]
 
     def _get_external_element_faces(self, element_block_ids='all'):
         """
@@ -1408,8 +1424,9 @@ class ExodusModel(object):
             element_block_ids)
         external_faces = dict()
         for id_ in element_block_ids:
-            (info, connectivity, _) = self.element_blocks[id_]
-            face_mapping = self._get_face_mapping(info[0])
+            info = self._get_block_info(id_)
+            connectivity = self.get_connectivity(id_)
+            face_mapping = self._get_face_mapping_from_id(id_)
             for element_index in range(info[1]):
                 for face_index, (_, face) in enumerate(face_mapping):
                     sorted_nodes = tuple(sorted([
@@ -1467,7 +1484,7 @@ class ExodusModel(object):
 
     def _convert_side_set_to_triangle_block(self,
                                             side_set_ids,
-                                            new_element_block_id):
+                                            new_element_block_id='auto'):
         """
         Create a new 'tri3' element block composed of the given side set.
 
@@ -1475,14 +1492,21 @@ class ExodusModel(object):
 
         """
         side_set_ids = self._format_side_set_id_list(side_set_ids)
+        if new_element_block_id == 'auto':
+            new_element_block_id = self._new_element_block_id()
+        else:
+            new_element_block_name = ''
+        if type(new_element_block_id) is str:
+            new_element_block_name = new_element_block_id
+            new_element_block_id = self._new_element_block_id()
         new_nodes = []
         # find members of all the given side sets by block
         members_by_block = self._order_element_faces_by_block(
-            itertools.chain(*[self.side_sets[x][0]
+            itertools.chain(*[self.get_side_set_members(x)
                               for x in side_set_ids]))
         # ensure all blocks are 3D
         for id_ in members_by_block.keys():
-            element_type = self.element_blocks[id_][0][0]
+            element_type = self._get_element_type(id_)
             dimension = self._get_dimension(element_type)
             if dimension != 3:
                 self._error('Incompatible element dimension.',
@@ -1494,10 +1518,9 @@ class ExodusModel(object):
         # Now we need to create the triangles from each member of the side set.
         faces = dict()
         for element_block_id, members in members_by_block.items():
-            connectivity = self.element_blocks[element_block_id][1]
-            nodes_per_element = self.element_blocks[element_block_id][0][2]
-            face_mapping = self._get_face_mapping(
-                self.element_blocks[element_block_id][0][0])
+            connectivity = self.get_connectivity(element_block_id)
+            nodes_per_element = self.get_nodes_per_element(element_block_id)
+            face_mapping = self._get_face_mapping_from_id(element_block_id)
             for element_index, face_index in members:
                 face_element_map = face_mapping[face_index]
                 local_node = connectivity[
@@ -1531,7 +1554,8 @@ class ExodusModel(object):
         # create the new element block
         self.create_element_block(new_element_block_id,
                                   ['tri3', len(connectivity) / 3, 3, 0],
-                                  connectivity)
+                                  connectivity,
+                                  element_block_name=new_element_block_name)
 
     @staticmethod
     def _sign(x):
@@ -1575,13 +1599,19 @@ class ExodusModel(object):
             self.get_timesteps(),
             'timestep',
             single=True)
+        # verify block is actually a tri3 block
+        if self._get_element_type(element_block_id) != 'tri3':
+            self._error('Invalid element type',
+                        'This function can only be used to divide element '
+                        'blocks composed of "tri3" elements.')
         timestep_index = self.timesteps.index(timestep)
-        element_block = self.element_blocks[element_block_id]
-        connectivity = element_block[1]
+        # element_block = self.element_blocks[element_block_id] # DEBUG
+        connectivity = self.get_connectivity(element_block_id)
+        element_count = self.get_element_count(element_block_id)
         new_connectivity = []
         element_interval_values = []
         triangles = [tuple(connectivity[x * 3: (x + 1) * 3])
-                     for x in xrange(element_block[0][1])]
+                     for x in xrange(element_count)]
         for index, upper_bound in enumerate(interval_list):
             # hold new vertices we have to create
             # edge = (x, y)
@@ -1672,7 +1702,8 @@ class ExodusModel(object):
                                   ['tri3', len(new_connectivity) / 3, 3, 0],
                                   new_connectivity)
         self.create_element_field('interval', new_element_block_id, 0.0)
-        field = self.element_blocks[new_element_block_id][-1]['interval']
+        fields = self._get_element_block_fields(new_element_block_id)
+        field = fields['interval']
         for index in xrange(len(self.timesteps)):
             field[index] = list(element_interval_values)
 
@@ -1746,12 +1777,10 @@ class ExodusModel(object):
                 'timestep',
                 single=True)
         # all element blocks should either be 3D elements, or 'tri3' elements
-        element_types = set(
-            self._get_standard_element_type(self.element_blocks[x][0][0])
-            for x in element_block_ids)
-        element_dimensions = set(
-            self._get_dimension(x)
-            for x in element_types)
+        element_types = set(self._get_element_type(x)
+                            for x in element_block_ids)
+        element_dimensions = set(self._get_dimension(x)
+                                 for x in element_types)
         # if we have all 3D elements, create a skin
         if element_dimensions == set([3]):
             triangle_element_block_id = self._new_element_block_id()
@@ -1841,9 +1870,9 @@ class ExodusModel(object):
             output.write('\n        ]\n')
             output.write('      }\n')
             output.write('      coordIndex [\n')
-            connectivity = self.element_blocks[subdivided_element_block_id][1]
-            for element_index in xrange(
-                    self.element_blocks[subdivided_element_block_id][0][1]):
+            connectivity = self.get_connectivity(subdivided_element_block_id)
+            element_count = self.get_element_count(subdivided_element_block_id)
+            for element_index in xrange(element_count):
                 output.write('%d,%d,%d,-1,' %
                              (connectivity[element_index * 3 + 0],
                               connectivity[element_index * 3 + 1],
@@ -1871,8 +1900,10 @@ class ExodusModel(object):
             output.write('      }\n')
             output.write('      colorIndex [\n')
             output.write('        ')
-            values = self.element_blocks[subdivided_element_block_id][-1][
-                'interval'][timestep_index]
+            values = self.get_element_field_values(
+                'internal',
+                subdivided_element_block_id,
+                self.timesteps[timestep_index])
             output.write(','.join(str(int(x)) for x in values))
             output.write('\n')
             output.write('      ]\n')
@@ -1921,7 +1952,7 @@ class ExodusModel(object):
         # get coordinates at the time we care about
         c = self._get_coordinates_at_time(displacement_timestep)
         # create the STL file
-        connectivity = self.element_blocks[triangle_element_block_id][1]
+        connectivity = self.get_connectivity(triangle_element_block_id)
         with open(filename, 'wb') as output:
             output.write(' ' * 80)
             output.write(struct.pack('<l', len(connectivity) / 3))
@@ -2012,8 +2043,8 @@ class ExodusModel(object):
         [element_block_id] = self._format_element_block_id_list(
             [element_block_id],
             single=True)
-        element_block = self.element_blocks[element_block_id]
-        element_type = self._get_standard_element_type(element_block[0][0])
+        element_type = self._get_element_type(element_block_id)
+        element_type = self._get_standard_element_type(element_type)
         if element_type in self.DIMENSION:
             return self.DIMENSION[element_type]
         else:
@@ -2025,7 +2056,7 @@ class ExodusModel(object):
         [element_block_id] = self._format_element_block_id_list(
             [element_block_id],
             single=True)
-        return self.element_blocks[element_block_id][0][2]
+        return self.element_blocks[element_block_id][1][2]
 
     def _get_element_type(self,
                           element_block_id):
@@ -2040,7 +2071,7 @@ class ExodusModel(object):
         [element_block_id] = self._format_element_block_id_list(
             [element_block_id],
             single=True)
-        return self.element_blocks[element_block_id][0][0]
+        return self.element_blocks[element_block_id][1][0]
 
     def _calculate_element_field_extreme(self,
                                          element_field_names,
@@ -2415,7 +2446,8 @@ class ExodusModel(object):
         # for each node set
         for node_set_id in node_set_ids:
             self.create_node_set_field(new_name, node_set_id)
-            (members, fields) = self.node_sets[node_set_id]
+            members = self.get_node_set_members(node_set_id)
+            fields = self._get_node_set_fields(node_set_id)
             new_values = fields[new_name]
             # create list of variable names and modify them in the expression
             variable_names = set(['time'])
@@ -2597,7 +2629,7 @@ class ExodusModel(object):
         """
         Convert element blocks to a new element type.
 
-        >>> model._translate_element_blocks([(1, 'hex20'), (2, 'tet10)])
+        >>> model._translate_element_blocks([(1, 'hex20'), (2, 'tet10')])
 
         """
         # validity check the inputs
@@ -3193,8 +3225,8 @@ class ExodusModel(object):
                 'element field',
                 element_block_id,
                 'element block')
-        return self.element_blocks[element_block_id][2][
-            element_field_name][timestep_index]
+        fields = self._get_element_block_fields(element_block_id)
+        return fields[element_field_name][timestep_index]
 
     def get_side_set_field_values(self,
                                   side_set_field_name,
@@ -3507,12 +3539,12 @@ class ExodusModel(object):
             for field_name in field_names]
         return truth_table
 
-    def get_element_block_connectivity(self, element_block_id='auto'):
+    def get_connectivity(self, element_block_id='auto'):
         """
         Return the connectivity list of an element block.
 
         Example:
-        >>> model.get_element_block_connectivity(1)
+        >>> model.get_connectivity(1)
 
         """
         [element_block_id] = self._format_element_block_id_list(
@@ -3533,7 +3565,7 @@ class ExodusModel(object):
             element_block_ids)
         node_list = set()
         for id_ in element_block_ids:
-            connectivity = self.get_element_block_connectivity(id_)
+            connectivity = self.get_connectivity(id_)
             node_list.update(connectivity)
         return sorted(node_list)
 
@@ -3975,6 +4007,7 @@ class ExodusModel(object):
         """Return the members of a side set."""
         [side_set_id] = self._format_side_set_id_list([side_set_id],
                                                       single=True)
+        return self.side_sets[side_set_id][1]
 
     def rename_node_set_field(self,
                               current_node_set_field_name,
@@ -4051,17 +4084,23 @@ class ExodusModel(object):
                              current_element_block_id,
                              new_element_block_id):
         """
-        Change an element block id.
+        Change an element block id or name.
 
         Example:
         >>> model.rename_element_block(1, 100)
+        >>> model.rename_element_block(1, 'block_1')
 
         """
-        [current_element_block_id] = self._format_id_list(
+        [current_element_block_id] = self._format_element_block_id_list(
             [current_element_block_id],
-            self.get_element_block_ids(),
-            'element block',
             single=True)
+        # if we're just renaming it, we don't need to check any ids
+        if type(new_element_block_id) is str:
+            # TODO: make sure element block name is unique
+            self.element_blocks[
+                current_element_block_id][0] = new_element_block_id
+            return
+        assert type(new_element_block_id) is int
         # rename the block
         self._rename_entity('element block',
                             current_element_block_id,
@@ -4709,18 +4748,18 @@ class ExodusModel(object):
         >>> model.delete_element_field('all')
 
         """
+        element_block_ids = self._format_element_block_id_list(
+            element_block_ids)
         element_field_names = self._format_id_list(
             element_field_names,
             self.get_element_field_names(),
             'element field')
-        element_block_ids = self._format_element_block_id_list(
-            element_block_ids)
         # for each field
         for element_field_name in element_field_names:
             any_deleted = False
             # for each element block
             for element_block_id in element_block_ids:
-                (_, _, fields) = self.element_blocks[element_block_id]
+                fields = self._get_element_block_fields(element_block_id)
                 if element_field_name in fields:
                     any_deleted = True
                     del fields[element_field_name]
@@ -4922,6 +4961,30 @@ class ExodusModel(object):
         timestep_index = self._get_internal_timestep_index(timestep)
         return self.node_fields[node_field_name][timestep_index]
 
+    def get_node_set_name(self, node_set_id):
+        """
+        Return the name of the given node set.
+
+        If the node set does not have a name, this will return an empty string.
+
+        """
+        [node_set_id] = self._format_node_set_id_list(
+            [node_set_id],
+            single=True)
+        return self.node_sets[node_set_id][0]
+
+    def get_side_set_name(self, side_set_id):
+        """
+        Return the name of the given side set.
+
+        If the side set does not have a name, this will return an empty string.
+
+        """
+        [side_set_id] = self._format_side_set_id_list(
+            [side_set_id],
+            single=True)
+        return self.side_sets[side_set_id][0]
+
     def get_node_set_members(self, node_set_id):
         """
         Return the list of node indices that belong to the given node set.
@@ -4930,12 +4993,10 @@ class ExodusModel(object):
         >>> model.get_node_set_members(1)
 
         """
-        [node_set_id] = self._format_id_list(
+        [node_set_id] = self._format_node_set_id_list(
             [node_set_id],
-            self.get_node_set_ids(),
-            'node set',
             single=True)
-        return self.node_sets[node_set_id][0]
+        return self.node_sets[node_set_id][1]
 
     def _get_face_mapping(self, element_name):
         """
@@ -4957,6 +5018,14 @@ class ExodusModel(object):
                         'are defined: %s' %
                         (element_name, ', '.join(self.FACE_MAPPING.keys())))
         return self.FACE_MAPPING[element_type]
+
+    def _get_face_mapping_from_id(self, element_block_id):
+        """Return the face mapping from the element block id."""
+        [element_block_id] = self._format_element_block_id_list(
+            [element_block_id],
+            single=True)
+        element_type = self._get_element_type(element_block_id)
+        return self._get_face_mapping(element_type)
 
     def get_nodes_in_side_set(self, side_set_id):
         """
@@ -5723,6 +5792,27 @@ class ExodusModel(object):
         print '  %d side sets' % len(self.side_sets)
         print '  %d side set fields' % len(self.get_side_set_field_names())
 
+    def _get_element_block_fields(self, element_block_id):
+        """Return the dictionary of element block field values."""
+        [element_block_id] = self._format_element_block_id_list(
+            [element_block_id],
+            single=True)
+        return self.element_blocks[element_block_id][-1]
+
+    def _get_side_set_fields(self, side_set_id):
+        """Return the dictionary of side set field values."""
+        [side_set_id] = self._format_side_set_id_list(
+            [side_set_id],
+            single=True)
+        return self.side_sets[side_set_id][-1]
+
+    def _get_node_set_fields(self, node_set_id):
+        """Return the dictionary of node set field values."""
+        [node_set_id] = self._format_node_set_id_list(
+            [node_set_id],
+            single=True)
+        return self.node_sets[node_set_id][-1]
+
     def get_element_count(self, element_block_ids='all'):
         """
         Return the total number of elements in the given element blocks.
@@ -5733,7 +5823,7 @@ class ExodusModel(object):
         """
         element_block_ids = self._format_element_block_id_list(
             element_block_ids)
-        return sum(self.element_blocks[x][0][1]
+        return sum(self.element_blocks[x][1][1]
                    for x in element_block_ids)
 
     def process_element_fields(self, element_block_ids='all'):
@@ -5880,7 +5970,7 @@ class ExodusModel(object):
                  element_index + new_block_info[element_block_id][1],
                  face_index)
                 for element_block_id, element_index, face_index in members]
-            self.side_sets[side_set_id][0] = new_members
+            self.side_sets[side_set_id][1] = new_members
         # delete old blocks
         # (nodes can not be orphaned by this procedure)
         for id_ in element_block_ids:
@@ -6175,7 +6265,7 @@ class ExodusModel(object):
         else:
             centroid_field_names = element_field_name_prefix
         for element_block_id in element_block_ids:
-            element_block = self.element_blocks[element_block_id]
+            # element_block = self.element_blocks[element_block_id] # DEBUG
             for name in centroid_field_names:
                 if self.element_field_exists(name, element_block_id):
                     self._exists_on_entity_warning(name,
@@ -6186,7 +6276,7 @@ class ExodusModel(object):
             centroid = [[], [], []]
             element_count = self.get_element_count(element_block_id)
             nodes_per_element = self.get_nodes_per_element(element_block_id)
-            connectivity = element_block[1]
+            connectivity = self.get_connectivity(element_block_id)
             for element_index in xrange(element_count):
                 this_centroid = [0.0, 0.0, 0.0]
                 for connectivity_index in xrange(nodes_per_element):
@@ -6196,11 +6286,12 @@ class ExodusModel(object):
                         this_centroid[i] += self.nodes[node_index][i]
                 for i in xrange(3):
                     centroid[i].append(this_centroid[i] / nodes_per_element)
+            fields = self._get_element_block_fields(element_block_id)
             for index, name in enumerate(centroid_field_names):
                 values = []
                 for _ in xrange(len(self.timesteps)):
                     values.append(list(centroid[index]))
-                element_block[2][name] = values
+                fields[name] = values
 
     def calculate_element_volumes(self,
                                   element_field_name='volume',
@@ -6325,7 +6416,8 @@ class ExodusModel(object):
         # add up the volumes
         volume = 0.0
         for id_ in element_block_ids:
-            volume += sum(self.element_blocks[id_][-1][field_name][0])
+            fields = self._get_element_block_fields(id_)
+            volume += sum(fields[field_name][0])
         # delete the temporary field
         self.delete_element_field(field_name, element_block_ids)
         return volume
@@ -6548,19 +6640,29 @@ class ExodusModel(object):
         for name, field in self.node_fields.items():
             value = self._get_default_field_value(name)
             field.append([value] * len(self.nodes))
-        # adjust self.element_blocks
-        for info, _, fields in self.element_blocks.values():
-            element_count = info[1]
-            for name, field in fields.items():
+        # adjust element blocks fields
+        for id_ in self.get_element_block_ids():
+            element_count = self.get_element_count(id_)
+            fields = self._get_element_block_fields(id_)
+            for name, field_values in fields.items():
                 value = self._get_default_field_value(name)
-                field.append([value] * element_count)
-        # adjust self.node_sets, self.side_sets
-        for members, fields in itertools.chain(self.node_sets.values(),
-                                               self.side_sets.values()):
+                field_values.append([value] * element_count)
+        # adjust side set fields
+        for id_ in self.get_side_set_ids():
+            members = self.get_side_set_members(id_)
+            fields = self._get_side_set_fields(id_)
             member_count = len(members)
-            for name, field in fields.items():
+            for name, values in fields.items():
                 value = self._get_default_field_value(name)
-                field.append([value] * member_count)
+                values.append([value] * member_count)
+        # adjust node set fields
+        for id_ in self.get_node_set_ids():
+            members = self.get_node_set_members(id_)
+            fields = self._get_node_set_fields(id_)
+            member_count = len(members)
+            for name, values in fields.items():
+                value = self._get_default_field_value(name)
+                values.append([value] * member_count)
         # adjust self.global_variables
         for name, values in self.global_variables.items():
             values.append(self._get_default_field_value(name))
@@ -7422,64 +7524,64 @@ class ExodusModel(object):
                 timesteps = 'last'
             else:
                 timesteps = 'none'
-        timesteps = self._format_id_translation_list(
+        timesteps = self._format_id_list(
             timesteps,
             file_timesteps,
             'timestep')
         # format block id list
         file_element_block_ids = list(exodus_file.get_elem_blk_ids())
-        file_element_block_names = list(exodus_file.get_elem_blk_names())
-        file_element_block_translator = {
-            x: y
-            for x, y in zip(file_element_block_ids, file_element_block_names)}
-        element_block_ids = self._format_id_translation_list(
+        # file_element_block_names = list(exodus_file.get_elem_blk_names())
+        # file_element_block_translator = {
+        #    x: y
+        #    for x, y in zip(file_element_block_ids, file_element_block_names)}
+        element_block_ids = self._format_id_list(
             element_block_ids,
             sorted(file_element_block_ids),
             'element block')
         # format other id lists
-        node_field_names = self._format_id_translation_list(
+        node_field_names = self._format_id_list(
             node_field_names,
             sorted(list(exodus_file.get_node_variable_names())),
             'node field')
         file_element_field_names = list(
             exodus_file.get_element_variable_names())
-        element_field_names = self._format_id_translation_list(
+        element_field_names = self._format_id_list(
             element_field_names,
             sorted(file_element_field_names),
             'element field')
         file_side_set_ids = list(exodus_file.get_side_set_ids())
-        side_set_ids = self._format_id_translation_list(
+        side_set_ids = self._format_id_list(
             side_set_ids,
             sorted(file_side_set_ids),
             'side set')
         file_node_set_ids = list(exodus_file.get_node_set_ids())
-        node_set_ids = self._format_id_translation_list(
+        node_set_ids = self._format_id_list(
             node_set_ids,
             sorted(file_node_set_ids),
             'node set')
-        global_variable_names = self._format_id_translation_list(
+        global_variable_names = self._format_id_list(
             global_variable_names,
             sorted(list(exodus_file.get_global_variable_names())),
             'global variable')
         file_node_set_field_names = list(
             exodus_file.get_node_set_variable_names())
-        node_set_field_names = self._format_id_translation_list(
+        node_set_field_names = self._format_id_list(
             node_set_field_names,
             sorted(file_node_set_field_names),
             'node set field')
         file_side_set_field_names = list(
             exodus_file.get_side_set_variable_names())
-        side_set_field_names = self._format_id_translation_list(
+        side_set_field_names = self._format_id_list(
             side_set_field_names,
             sorted(file_side_set_field_names),
             'node set field')
         # ensure element blocks in this file do not already exist
         for element_block_id in element_block_ids:
-            if self.element_block_exists(element_block_id[1]):
+            if self.element_block_exists(element_block_id):
                 self._error(
                     'Element block already exists.',
                     'Cannot import element block \"%d\" since it already '
-                    'exists in the model.' % element_block_id[1])
+                    'exists in the model.' % element_block_id)
         # create new nodes used in this file
         # note: new_used_nodes is 1-based
         node_offset = len(self.nodes)
@@ -7487,7 +7589,7 @@ class ExodusModel(object):
         for element_block_id in element_block_ids:
             new_used_nodes += list(
                 exodus_file.get_elem_connectivity(
-                    element_block_id[0])[0])
+                    element_block_id)[0])
         new_used_nodes = list(set(new_used_nodes))
         # get new node coordinates
         new_nodes = []
@@ -7512,7 +7614,7 @@ class ExodusModel(object):
         file_block_from_element = [None]
         file_index_from_element = [None]
         for i in xrange(len(file_element_block_ids)):
-            if file_element_block_ids[i] in [x[0] for x in element_block_ids]:
+            if file_element_block_ids[i] in element_block_ids:
                 model_block_id = element_block_ids[
                     [x[0] for x in element_block_ids].index(
                         file_element_block_ids[i])][1]
@@ -7879,8 +7981,10 @@ class ExodusModel(object):
                     values[timestep_index[0]])
         # write element blocks
         for id_ in element_block_ids:
-            info, connectivity, fields = self.element_blocks[id_]
+            name, info, connectivity, fields = self.element_blocks[id_]
             new_file.put_elem_blk_info(id_, *info)
+            if name:
+                new_file.put_elem_blk_name(id_, name)
             # connectivity in file must be 1-based
             temp_connectivity = [x + 1 for x in connectivity]
             new_file.put_elem_connectivity(id_, temp_connectivity)
@@ -7893,7 +7997,7 @@ class ExodusModel(object):
                 element_block_ids, element_field_names)
             new_file.set_element_variable_truth_table(truth_table)
         for block_id in element_block_ids:
-            fields = self.element_blocks[block_id][-1]
+            fields = self._get_element_block_fields(block_id)
             for name in element_field_names:
                 if name not in fields:
                     continue
@@ -7905,7 +8009,7 @@ class ExodusModel(object):
                         timestep_index[1],
                         field[timestep_index[0]])
         # get first element in each block
-        element_count = [self.element_blocks[id_][0][1]
+        element_count = [self.get_element_count(id_)
                          for id_ in element_block_ids]
         first_element = [sum(element_count[:i]) + 1
                          for i in xrange(len(element_count))]
@@ -7914,7 +8018,10 @@ class ExodusModel(object):
             for i in xrange(len(element_block_ids)))
         # write side sets
         for id_ in side_set_ids:
-            members = self.side_sets[id_][0]
+            name = self.get_side_set_name(id_)
+            members = self.get_side_set_members(id_)
+            if name:
+                new_file.put_side_set_name(id_, name)
             new_file.put_side_set_params(id_, len(members), 0)
             if members:
                 elements = [first_element[block_id] + index
@@ -7930,7 +8037,7 @@ class ExodusModel(object):
                 side_set_ids, side_set_field_names)
             new_file.set_side_set_variable_truth_table(truth_table)
         for side_set_id in side_set_ids:
-            members, fields = self.side_sets[side_set_id]
+            _, members, fields = self.side_sets[side_set_id]
             if not members:
                 continue
             for name in side_set_field_names:
@@ -7945,7 +8052,10 @@ class ExodusModel(object):
                         field[timestep_index[0]])
         # write node sets
         for id_ in node_set_ids:
-            members = self.node_sets[id_][0]
+            name = self.get_node_set_name(id_)
+            if name:
+                new_file.put_node_set_name(id_, name)
+            members = self.get_node_set_members(id_)
             new_file.put_node_set_params(id_, len(members))
             if members:
                 # convert to 1-based indexing
@@ -8014,10 +8124,8 @@ class ExodusModel(object):
         short disk with the same characteristics.
 
         """
-        element_block_ids = self._format_id_list(
+        element_block_ids = self._format_element_block_id_list(
             element_block_ids,
-            self.get_element_block_ids(),
-            'element block',
             empty_list_okay=False)
         # delete any element blocks which are not of dimension 3
         new_ids = []
@@ -8070,15 +8178,14 @@ class ExodusModel(object):
 
         [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
         """
-        element_block_ids = self._format_id_list(
+        element_block_ids = self._format_element_block_id_list(
             element_block_ids,
-            self.get_element_block_ids(),
-            'element block',
             empty_list_okay=False)
         # get a set of all nodes within the given element blocks
         all_nodes = set()
         for id_ in element_block_ids:
-            all_nodes.update(set(self.element_blocks[id_][1]))
+            connectivity = self.get_connectivity(id_)
+            all_nodes.update(set(connectivity))
         # find the extents of that set
         extents = [[min(self.nodes[x][d] for x in all_nodes),
                     max(self.nodes[x][d] for x in all_nodes)]
@@ -8140,10 +8247,8 @@ class ExodusModel(object):
         The result is returned as [minimum, average].
 
         """
-        element_block_ids = self._format_id_list(
+        element_block_ids = self._format_element_block_id_list(
             element_block_ids,
-            self.get_element_block_ids(),
-            'element block',
             empty_list_okay=False)
         # delete any element blocks which are not of dimension 3
         new_ids = []
@@ -8275,7 +8380,10 @@ class ExodusModel(object):
         for id_ in self.get_element_block_ids():
             element_block = self.element_blocks[id_]
             print
-            print 'Element block ID %d:' % id_
+            name = self.get_element_block_name(id_)
+            print('Element block ID {}{}:'.format(
+                id_,
+                ' ("{}")'.format(name) if name else ''))
             dim = self.get_element_block_dimension(id_)
             print '- Contains %d "%s"%s elements' % (element_block[0][1],
                                                      element_block[0][0],
@@ -8373,6 +8481,9 @@ class ExodusModel(object):
         For example, to check if an argument is a list of 3 integers, set
         format=[list, 3, int]
 
+        For example, to check if an argument is a list of at least 3 integers,
+        set format=[list, -3, int]
+
         To check if an argument is a list of 3 lists, each with 2 integers, set
         format=[list, 3, list, 2, int].
 
@@ -8386,7 +8497,9 @@ class ExodusModel(object):
             self._assert(len(format) > 2)
             if type(argument) is not list:
                 self._input_check_error(argument, format)
-            if len(argument) != format[1]:
+            if format[1] > 0 and len(argument) != format[1]:
+                self._input_check_error(argument, format)
+            if format[1] <= 0 and len(argument) < -format[1]:
                 self._input_check_error(argument, format)
             for x in argument:
                 self._input_check(x, format[2:])
@@ -8408,7 +8521,8 @@ class ExodusModel(object):
     def build_hex8_cube(self,
                         element_block_id='auto',
                         extents=1.0,
-                        divisions=3):
+                        divisions=3,
+                        element_block_name=''):
         """
         Create an element block in the shape of a cube.
 
@@ -8451,6 +8565,7 @@ class ExodusModel(object):
                 for i in range(dimx + 1):
                     x = minx + (maxx - minx) * float(i) / dimx
                     new_nodes.append([x, y, z])
+        del i, j, k
         del x, y, z
         # create the connectivity matrix
         connectivity = []
@@ -8468,7 +8583,8 @@ class ExodusModel(object):
         # now create the actual block
         self.create_element_block(element_block_id,
                                   ['hex8', dimx * dimy * dimz, 8, 0],
-                                  connectivity=connectivity)
+                                  connectivity=connectivity,
+                                  element_block_name=element_block_name)
 
     def count_degenerate_elements(self, element_block_ids='all'):
         """
@@ -8478,10 +8594,8 @@ class ExodusModel(object):
         which are a duplicate of another node within the same element.
 
         """
-        element_block_ids = self._format_id_list(
+        element_block_ids = self._format_element_block_id_list(
             element_block_ids,
-            self.get_element_block_ids(),
-            'element block',
             empty_list_okay=False)
         degenerate_element_count = 0
         for element_block_id in element_block_ids:
