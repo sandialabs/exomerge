@@ -3759,6 +3759,8 @@ class ExodusModel(object):
         """
         element_block_ids = self._format_element_block_id_list(
             element_block_ids)
+        if adjust_displacement_field == 'auto':
+            adjust_displacement_field = self.displacement_field_exists()
         point = [float(x) for x in point]
         scale = math.sqrt(sum(x * x for x in normal))
         normal = [float(x) / scale for x in normal]
