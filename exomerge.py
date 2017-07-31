@@ -63,7 +63,7 @@ import operator
 import exodus
 
 # informal version number of this module
-__version__ = 8.1
+__version__ = 8.2
 VERSION = __version__
 
 # contact person for issues
@@ -79,9 +79,18 @@ EXIT_ON_WARNING = False
 # this will not suppress the banner output
 SUPPRESS_EXODUS_OUTPUT = True
 
+# a list of deprecated or renamed functions
+# When the user calls one of these, it will issue a warning message
+# saying it is deprecated.  If it has simply been renamed, we will call that
+# function.  If it has been deleted, we will error out.
+# This is a dict where the key is the deprecated function name and the value
+# is the renamed function, or None.
+# e.g. DEPRECATED_FUNCTIONS['build_hex8_cube'] = 'create_hex8_cube'
+DEPRECATED_FUNCTIONS = dict()
+
 
 class DummyFile(object):
-    """Dummy class used to suppress stdout output."""
+    """Dummy class used to suppress output to stdout."""
 
     def write(self, x):
         """Ignore the write command."""
@@ -392,7 +401,7 @@ class ExodusModel(object):
         # with fields[name] = values
         # with values[timestep_index][local_member_index]
         self.side_sets = {}
-        # self.node_sets[side_set_id] = [name, members, fields]
+        # self.node_sets[node_set_id] = [name, members, fields]
         # with name = string name of node set or '' if unnamed
         # with members = list of node indices
         # with fields[name] = values
@@ -1416,12 +1425,10 @@ class ExodusModel(object):
         """
         members_by_block = dict()
         for element_block_id, element_index, face_index in members:
-            if element_block_id in members_by_block:
-                members_by_block[element_block_id].append(
-                    (element_index, face_index))
-            else:
-                members_by_block[element_block_id] = [
-                    (element_index, face_index)]
+            if element_block_id not in members_by_block:
+                members_by_block[element_block_id] = []
+            members_by_block[element_block_id].append(
+                (element_index, face_index))
         return members_by_block
 
     def _get_dimension(self, element_type):
@@ -1449,11 +1456,6 @@ class ExodusModel(object):
         """
         side_set_ids = self._format_side_set_id_list(side_set_ids)
         if new_element_block_id == 'auto':
-            new_element_block_id = self._new_element_block_id()
-        else:
-            new_element_block_name = ''
-        if type(new_element_block_id) is str:
-            new_element_block_name = new_element_block_id
             new_element_block_id = self._new_element_block_id()
         new_nodes = []
         # find members of all the given side sets by block
@@ -1510,8 +1512,7 @@ class ExodusModel(object):
         # create the new element block
         self.create_element_block(new_element_block_id,
                                   ['tri3', len(connectivity) / 3, 3, 0],
-                                  connectivity,
-                                  element_block_name=new_element_block_name)
+                                  connectivity)
 
     @staticmethod
     def _sign(x):
@@ -3206,10 +3207,8 @@ class ExodusModel(object):
         ...                                 timestep='last')
 
         """
-        [side_set_id] = self._format_id_list(
+        [side_set_id] = self._format_side_set_id_list(
             [side_set_id],
-            self.get_side_set_ids(),
-            'side set',
             single=True)
         [side_set_field_name] = self._format_id_list(
             [side_set_field_name],
@@ -3250,10 +3249,8 @@ class ExodusModel(object):
         ...                                 timestep='last')
 
         """
-        [node_set_id] = self._format_id_list(
+        [node_set_id] = self._format_node_set_id_list(
             [node_set_id],
-            self.get_node_set_ids(),
-            'node set',
             single=True)
         [node_set_field_name] = self._format_id_list(
             [node_set_field_name],
@@ -3540,6 +3537,8 @@ class ExodusModel(object):
                       node_indices='all',
                       adjust_displacement_field='auto'):
         """Rotate nodes about an axis by the given angle."""
+        if adjust_displacement_field == 'auto':
+            adjust_displacement_field = self.displacement_field_exists()
         # Create rotation matrix.
         # x --> R * x
         scale = math.sqrt(sum(x * x for x in axis))
@@ -3876,6 +3875,12 @@ class ExodusModel(object):
             self._ensure_no_shared_nodes(element_block_ids)
         timestep_indices = [self.timesteps.index(x) for x in timesteps]
         offset = [float(x) for x in offset]
+        # if no timesteps exist, issue an error
+        if not self.timesteps:
+            self._error('No timesteps defined',
+                        'A displacement field cannot exist if no timesteps '
+                        'are defined.  To avoid this error, create a timestep '
+                        'before calling this function.')
         # get displacement field indices
         displacement_fields = self._get_displacement_field_values()
         # get affected nodes
@@ -3889,7 +3894,7 @@ class ExodusModel(object):
 
     def _rename_field_on_entity(self,
                                 field_type,
-                                current_field_name,
+                                field_name,
                                 new_field_name,
                                 field_name_list_function,
                                 entity_type,
@@ -3901,24 +3906,24 @@ class ExodusModel(object):
             entity_list,
             entity_list_function(),
             entity_type)
-        [current_field_name] = self._format_id_list(
-            [current_field_name],
+        [field_name] = self._format_id_list(
+            [field_name],
             field_name_list_function(entity_list),
             field_type,
             single=True)
         for id_ in entity_list:
             fields = entity_objects[id_][-1]
-            if current_field_name not in fields:
+            if field_name not in fields:
                 self._warning(field_type + ' not defined.',
                               'The given %s "%s" is not '
                               'defined on %s %s.  It cannot '
                               'be renamed.'
                               % (field_type,
-                                 current_field_name,
+                                 field_name,
                                  entity_type,
                                  str(id_)))
                 continue
-            if current_field_name == new_field_name:
+            if field_name == new_field_name:
                 continue
             if new_field_name in fields:
                 self._exists_on_entity_warning(
@@ -3926,11 +3931,11 @@ class ExodusModel(object):
                     field_type,
                     id_,
                     entity_type)
-            fields[new_field_name] = fields[current_field_name]
-            del fields[current_field_name]
+            fields[new_field_name] = fields[field_name]
+            del fields[field_name]
 
     def rename_element_field(self,
-                             current_element_field_name,
+                             element_field_name,
                              new_element_field_name,
                              element_block_ids='all'):
         """
@@ -3941,7 +3946,7 @@ class ExodusModel(object):
 
         """
         self._rename_field_on_entity('element field',
-                                     current_element_field_name,
+                                     element_field_name,
                                      new_element_field_name,
                                      self.get_element_field_names,
                                      'element block',
@@ -3950,7 +3955,7 @@ class ExodusModel(object):
                                      self.element_blocks)
 
     def rename_side_set_field(self,
-                              current_side_set_field_name,
+                              side_set_field_name,
                               new_side_set_field_name,
                               side_set_ids='all'):
         """
@@ -3961,7 +3966,7 @@ class ExodusModel(object):
 
         """
         self._rename_field_on_entity('side set field',
-                                     current_side_set_field_name,
+                                     side_set_field_name,
                                      new_side_set_field_name,
                                      self.get_side_set_field_names,
                                      'side set',
@@ -3997,7 +4002,7 @@ class ExodusModel(object):
         return self.side_sets[side_set_id][-1]
 
     def rename_node_set_field(self,
-                              current_node_set_field_name,
+                              node_set_field_name,
                               new_node_set_field_name,
                               node_set_ids='all'):
         """
@@ -4008,7 +4013,7 @@ class ExodusModel(object):
 
         """
         self._rename_field_on_entity('node set field',
-                                     current_node_set_field_name,
+                                     node_set_field_name,
                                      new_node_set_field_name,
                                      self.get_node_set_field_names,
                                      'node set',
@@ -4018,25 +4023,25 @@ class ExodusModel(object):
 
     def _rename_entity(self,
                        entity_type,
-                       current_entity_name,
+                       entity_name,
                        new_entity_name,
                        entity_name_list_function,
                        entity_objects):
         """Rename an entity."""
-        [current_entity_name] = self._format_id_list(
-            [current_entity_name],
+        [entity_name] = self._format_id_list(
+            [entity_name],
             entity_name_list_function(),
             entity_type,
             single=True)
-        if new_entity_name == current_entity_name:
+        if new_entity_name == entity_name:
             return
         if new_entity_name in entity_name_list_function():
             self._exists_warning(new_entity_name, entity_type)
-        entity_objects[new_entity_name] = entity_objects[current_entity_name]
-        del entity_objects[current_entity_name]
+        entity_objects[new_entity_name] = entity_objects[entity_name]
+        del entity_objects[entity_name]
 
     def rename_node_field(self,
-                          current_node_field_name,
+                          node_field_name,
                           new_node_field_name):
         """
         Rename a node field.
@@ -4046,13 +4051,13 @@ class ExodusModel(object):
 
         """
         self._rename_entity('node field',
-                            current_node_field_name,
+                            node_field_name,
                             new_node_field_name,
                             self.get_node_field_names,
                             self.node_fields)
 
     def rename_global_variable(self,
-                               current_global_variable_name,
+                               global_variable_name,
                                new_global_variable_name):
         """
         Rename a global variable.
@@ -4062,29 +4067,33 @@ class ExodusModel(object):
 
         """
         self._rename_entity('global variable',
-                            current_global_variable_name,
+                            global_variable_name,
                             new_global_variable_name,
                             self.get_global_variable_names,
                             self.global_variables)
 
     def rename_element_block(self,
-                             current_element_block_id,
+                             element_block_id,
                              new_element_block_id):
         """
         Change an element block id or name.
+
+        This function can be used to change either the element block id or
+        name.  If 'new_element_block_id' is an integer, it will change the id.
+        If it is a string, it will change the name.
 
         Example:
         >>> model.rename_element_block(1, 100)
         >>> model.rename_element_block(1, 'block_1')
 
         """
-        [current_element_block_id] = self._format_element_block_id_list(
-            [current_element_block_id],
+        [element_block_id] = self._format_element_block_id_list(
+            [element_block_id],
             single=True)
-        # if we're just changing the name:
+        # if we're just changing the name
         if type(new_element_block_id) is str:
             # if the same name already, just exit
-            if (self.element_blocks[current_element_block_id][0] ==
+            if (self.element_blocks[element_block_id][0] ==
                     new_element_block_id):
                 return
             # if the name already exists, issue a warning
@@ -4093,12 +4102,12 @@ class ExodusModel(object):
                                      'element block')
             # rename it
             self.element_blocks[
-                current_element_block_id][0] = new_element_block_id
+                element_block_id][0] = new_element_block_id
             return
         assert type(new_element_block_id) is int
         # rename the block
         self._rename_entity('element block',
-                            current_element_block_id,
+                            element_block_id,
                             new_element_block_id,
                             self.get_element_block_ids,
                             self.element_blocks)
@@ -4107,7 +4116,7 @@ class ExodusModel(object):
             members = self.get_side_set_members(side_set_id)
             new_members = []
             for member in members:
-                if member[0] == current_element_block_id:
+                if member[0] == element_block_id:
                     member = list(member)
                     member[0] = new_element_block_id
                     member = tuple(member)
@@ -4115,64 +4124,74 @@ class ExodusModel(object):
             members[:] = new_members
 
     def rename_node_set(self,
-                        current_node_set_id,
+                        node_set_id,
                         new_node_set_id):
         """
-        Change a node set id.
+        Change a node set id or name.
+
+        This function can be used to change either the node set id or name.
+        If 'new_node_set_id' is an integer, it will change the id. If it is a
+        string, it will change the name.
 
         Example:
         >>> model.rename_node_set(1, 100)
+        >>> model.rename_node_set(1, 'node_group_1')
 
         """
-        [current_node_set_id] = self._format_node_set_id_list(
-            [current_node_set_id],
+        [node_set_id] = self._format_node_set_id_list(
+            [node_set_id],
             single=True)
         # if we're just changing the name:
         if type(new_node_set_id) is str:
             # if the same name already, just exit
-            if self.node_sets[new_node_set_id][0] == new_node_set_id:
+            if self.get_node_set_name(node_set_id) == new_node_set_id:
                 return
             # if the name already exists, issue a warning
             if self.node_set_exists(new_node_set_id):
                 self._exists_warning('"' + new_node_set_id + '"',
                                      'node set')
             # rename it
-            self.node_sets[current_node_set_id][0] = new_node_set_id
+            self.node_sets[node_set_id][0] = new_node_set_id
             return
         # rename it
         self._rename_entity('node set',
-                            current_node_set_id,
+                            node_set_id,
                             new_node_set_id,
                             self.get_node_set_ids,
                             self.node_sets)
 
     def rename_side_set(self,
-                        current_side_set_id,
+                        side_set_id,
                         new_side_set_id):
         """
-        Change a side set id.
+        Change a side set id or name.
+
+        This function can be used to change either the side set id or name.
+        If 'new_side_set_id' is an integer, it will change the id. If it is a
+        string, it will change the name.
 
         Example:
         >>> model.rename_side_set(1, 100)
+        >>> model.rename_side_set(1, 'surface_1')
 
         """
-        [current_side_set_id] = self._format_side_set_id_list(
-            [current_side_set_id],
+        [side_set_id] = self._format_side_set_id_list(
+            [side_set_id],
             single=True)
         # if we're just changing the name:
         if type(new_side_set_id) is str:
             # if the same name already, just exit
-            if self.side_sets[new_side_set_id][0] == new_side_set_id:
+            if self.get_side_set_name(side_set_id) == new_side_set_id:
                 return
             # if the name already exists, issue a warning
             if self.side_set_exists(new_side_set_id):
                 self._exists_warning('"' + new_side_set_id + '"',
                                      'side set')
             # rename it
-            self.side_sets[current_side_set_id][0] = new_side_set_id
+            self.side_sets[side_set_id][0] = new_side_set_id
             return
         self._rename_entity('side set',
-                            current_side_set_id,
+                            side_set_id,
                             new_side_set_id,
                             self.get_side_set_ids,
                             self.side_sets)
@@ -4376,10 +4395,12 @@ class ExodusModel(object):
 
     def create_node_set(self,
                         node_set_id,
-                        node_set_members=None,
-                        node_set_name=''):
+                        node_set_members=None):
         """
         Create a node side from the list of node indices.
+
+        Node sets are unnamed when created.  To name them, use the
+        'rename_node_set' function.
 
         Example:
         >>> model.create_node_set(1, [0, 1, 2, 3])
@@ -4388,10 +4409,6 @@ class ExodusModel(object):
         # if it exists, warn that it will be overwritten
         if self.node_set_exists(node_set_id):
             self._exists_warning(node_set_id, 'node set')
-        # ensure side set name is empty or unique
-        if node_set_name:
-            if self.node_set_exists(node_set_name):
-                self._exists_error(node_set_name, 'node set')
         # reformat members if necessary
         if not node_set_members:
             node_set_members = []
@@ -4405,7 +4422,7 @@ class ExodusModel(object):
                           'of some nodes.  These nodes will only be added '
                           'once.')
         # add the new set
-        self.node_sets[node_set_id] = [node_set_name, new_members, {}]
+        self.node_sets[node_set_id] = ['', new_members, {}]
 
     def add_nodes_to_node_set(self,
                               node_set_id,
@@ -4602,8 +4619,7 @@ class ExodusModel(object):
 
     def create_side_set(self,
                         side_set_id,
-                        side_set_members=None,
-                        side_set_name=''):
+                        side_set_members=None):
         """
         Create a side set from the given element faces.
 
@@ -4611,6 +4627,9 @@ class ExodusModel(object):
 
         side_set_members should be a list of tuples of the form:
         * '(element_block_id, local_element_index, element_side_index)'
+
+        Side sets are unnamed when created.  To name them, use the
+        'rename_side_set' function.
 
         Example:
         >>> model.create_side_set(1, [(1, 0, 1), (1, 0, 2)])
@@ -4621,10 +4640,6 @@ class ExodusModel(object):
         # ensure set set id doesn't exist
         if self.side_set_exists(side_set_id):
             self._exists_warning(side_set_id, 'side set')
-        # ensure side set name is empty or unique
-        if side_set_name:
-            if self.side_set_exists(side_set_name):
-                self._exists_error(side_set_name, 'side set')
         unique_members = self._remove_duplicates(
             side_set_members,
             preserve_order=False)
@@ -4633,7 +4648,7 @@ class ExodusModel(object):
                           'The face set member list contains multiple copies '
                           'of some faces.  These faces will only be added '
                           'once.')
-        self.side_sets[side_set_id] = [side_set_name, unique_members, {}]
+        self.side_sets[side_set_id] = ['', unique_members, {}]
 
     def add_faces_to_side_set(self,
                               side_set_id,
@@ -5091,10 +5106,8 @@ class ExodusModel(object):
         >>> model.get_nodes_in_side_set(1)
 
         """
-        [side_set_id] = self._format_id_list(
+        [side_set_id] = self._format_side_set_id_list(
             [side_set_id],
-            self.get_side_set_ids(),
-            'side set',
             single=True)
         included_nodes = list()
         # store for element number in each element block
@@ -5633,10 +5646,8 @@ class ExodusModel(object):
 
         """
         # validate input
-        [side_set_id] = self._format_id_list(
+        [side_set_id] = self._format_side_set_id_list(
             [side_set_id],
-            self.get_side_set_ids(),
-            'node set',
             single=True)
         members = self.get_side_set_members(side_set_id)
         fields = self._get_side_set_fields(side_set_id)
@@ -5662,10 +5673,8 @@ class ExodusModel(object):
 
         """
         # validate input
-        [node_set_id] = self._format_id_list(
+        [node_set_id] = self._format_node_set_id_list(
             [node_set_id],
-            self.get_node_set_ids(),
-            'node set',
             single=True)
         node_set = self.node_sets[node_set_id]
         # find members to keep
@@ -6045,7 +6054,7 @@ class ExodusModel(object):
                                   target_element_block_id)
 
     def duplicate_element_block(self,
-                                old_element_block_id,
+                                element_block_id,
                                 new_element_block_id,
                                 duplicate_nodes=True):
         """
@@ -6058,13 +6067,11 @@ class ExodusModel(object):
         >>> model.duplicate_element_block(1, 2)
 
         """
-        [old_element_block_id] = self._format_id_list(
-            [old_element_block_id],
-            self.get_element_block_ids(),
-            'element block',
+        [element_block_id] = self._format_element_block_id_list(
+            [element_block_id],
             single=True)
-        info = list(self._get_block_info(old_element_block_id))
-        old_connectivity = self.get_connectivity(old_element_block_id)
+        info = list(self._get_block_info(element_block_id))
+        old_connectivity = self.get_connectivity(element_block_id)
         # create new nodes
         if duplicate_nodes:
             unique_node_indices = sorted(set(old_connectivity))
@@ -6082,7 +6089,7 @@ class ExodusModel(object):
         # copy fields
         fields = dict()
         for name, all_values in self._get_element_block_fields(
-                old_element_block_id).items():
+                element_block_id).items():
             fields[name] = [list(x) for x in all_values]
         self.element_blocks[new_element_block_id][-1] = fields
         # update side sets and side set fields
@@ -6092,7 +6099,7 @@ class ExodusModel(object):
             new_members = []
             source_face = []
             for index, member in enumerate(members):
-                if member[0] == old_element_block_id:
+                if member[0] == element_block_id:
                     new_members.append((new_element_block_id,
                                         member[1],
                                         member[2]))
@@ -6169,8 +6176,7 @@ class ExodusModel(object):
     def create_element_block(self,
                              element_block_id,
                              info,
-                             connectivity=None,
-                             element_block_name=''):
+                             connectivity=None):
         """
         Create a new element block.
 
@@ -6185,6 +6191,9 @@ class ExodusModel(object):
         The connectivity list should be a shallow list of element connectivity
         and must be of length 'element_count * nodes_per_element'.
 
+        Element blocks are unnamed when created.  To name them, use the
+        'rename_element_block' function.
+
         Example:
         >>> model.create_element_block(1, ['hex8', 0, 8, 0])
 
@@ -6192,15 +6201,11 @@ class ExodusModel(object):
         # make sure it doesn't exist already
         if self.element_block_exists(element_block_id):
             self._exists_error(element_block_id, 'element block')
-        # make sure element block name is unique
-        if element_block_name:
-            if self.element_block_exists(element_block_name):
-                self._exists_error(element_block_name, 'element block')
         # set up an empty connectivity if none is given
         if not connectivity:
             connectivity = []
         # create the actual block
-        self.element_blocks[element_block_id] = [element_block_name,
+        self.element_blocks[element_block_id] = ['',
                                                  info,
                                                  connectivity,
                                                  {}]
@@ -6684,7 +6689,7 @@ class ExodusModel(object):
             new_value = sum([values[x[0]] * x[1] for x in formula])
             values[this_index] = new_value
 
-    def copy_timestep(self, current_timestep, new_timestep):
+    def copy_timestep(self, timestep, new_timestep):
         """
         Create a copy of an existing timestep.
 
@@ -6696,8 +6701,8 @@ class ExodusModel(object):
         object.copy_timestep(0.0, 1.0)
 
         """
-        [current_timestep] = self._format_id_list(
-            [current_timestep],
+        [timestep] = self._format_id_list(
+            [timestep],
             self.get_timesteps(),
             'timestep',
             single=True)
@@ -6705,7 +6710,7 @@ class ExodusModel(object):
             self._exists_warning(new_timestep, 'timestep')
             return
         self.timesteps.append(new_timestep)
-        index = self._get_internal_timestep_index(current_timestep)
+        index = self._get_internal_timestep_index(timestep)
         # adjust node_fields
         for field in self.node_fields.values():
             field.append(list(field[index]))
@@ -7650,10 +7655,9 @@ class ExodusModel(object):
             'timestep')
         # format block id list
         file_element_block_ids = list(exodus_file.get_elem_blk_ids())
-        file_element_block_names = list(exodus_file.get_elem_blk_names())
-        # file_element_block_translator = {
-        #    x: y
-        #    for x, y in zip(file_element_block_ids, file_element_block_names)}
+        file_element_block_names = []
+        if file_element_block_ids:
+            file_element_block_names = list(exodus_file.get_elem_blk_names())
         element_block_ids = self._format_id_list(
             element_block_ids,
             sorted(file_element_block_ids),
@@ -7670,11 +7674,17 @@ class ExodusModel(object):
             sorted(file_element_field_names),
             'element field')
         file_side_set_ids = list(exodus_file.get_side_set_ids())
+        file_side_set_names = []
+        if file_side_set_ids:
+            file_side_set_names = list(exodus_file.get_side_set_names())
         side_set_ids = self._format_id_list(
             side_set_ids,
             sorted(file_side_set_ids),
             'side set')
         file_node_set_ids = list(exodus_file.get_node_set_ids())
+        file_node_set_names = []
+        if file_node_set_ids:
+            file_node_set_names = list(exodus_file.get_node_set_names())
         node_set_ids = self._format_id_list(
             node_set_ids,
             sorted(file_node_set_ids),
@@ -7754,8 +7764,9 @@ class ExodusModel(object):
             self.create_element_block(
                 element_block_id,
                 list(exodus_file.elem_blk_info(element_block_id)),
-                connectivity=new_connectivity,
-                element_block_name=element_block_name)
+                connectivity=new_connectivity)
+            if element_block_name:
+                self.rename_element_block(element_block_id, element_block_name)
         # get indices of each timestep and create new timesteps
         # list of (timestep_index_in_file, timestep_index_in_model)
         timestep_indices = []
@@ -7805,6 +7816,10 @@ class ExodusModel(object):
             else:
                 self.add_nodes_to_node_set(node_set_id,
                                            model_node_set_members)
+            node_set_name = file_node_set_names[
+                file_node_set_ids.index(node_set_id)]
+            if node_set_name:
+                self.rename_node_set(node_set_id, node_set_name)
         # populate side sets
         for side_set_id in side_set_ids:
             file_side_set_members = exodus_file.get_side_set(
@@ -7824,6 +7839,10 @@ class ExodusModel(object):
             else:
                 self.add_faces_to_side_set(side_set_id,
                                            model_side_set_members)
+            side_set_name = file_side_set_names[
+                file_side_set_ids.index(side_set_id)]
+            if side_set_name:
+                self.rename_side_set(side_set_id, side_set_name)
         # store truth table for node set field info
         if node_set_field_names:
             file_node_set_truth_table = []
@@ -8233,7 +8252,8 @@ class ExodusModel(object):
         total_area = 0.0
         for id_ in new_blocks:
             total_area += self.get_element_block_volume(id_)
-            self.delete_element_block(id_)
+            self.delete_element_block(id_,
+                                      delete_orphaned_nodes=False)
         return total_area
 
     def _get_thickness_from_volume_and_area(self,
@@ -8348,7 +8368,10 @@ class ExodusModel(object):
         """
         Create new element block from the members of the given side sets.
 
-        A list of new element block ids is returned.
+        A list of new element block ids is returned.  Typically, only one
+        ID is in the list, but since multiple face types can be present within
+        the sideset, and element blocks can only contain a single element type,
+        it is sometimes necessary to make more than one element block.
 
         """
         side_set_ids = self._format_side_set_id_list(side_set_ids)
@@ -8444,8 +8467,9 @@ class ExodusModel(object):
         element_block_ids = self._format_element_block_id_list(
             element_block_ids,
             empty_list_okay=False)
-        # go through
-        element_edge = []
+        minimum = sys.float_info.max
+        total = 0.0
+        edge_count = 0
         for element_block_id in element_block_ids:
             # get the edge endpoint info
             endpoints = self._get_element_edge_indices(
@@ -8454,20 +8478,21 @@ class ExodusModel(object):
             element_count = self.get_element_count(element_block_id)
             connectivity = self.get_connectivity(element_block_id)
             nodes_per_element = self.get_nodes_per_element(element_block_id)
+            edge_count += element_count * len(endpoints)
             for element_index in xrange(element_count):
                 local_node = connectivity[
                     element_index * nodes_per_element:
                     (element_index + 1) * nodes_per_element]
                 for edge in endpoints:
-                    element_edge.append(self._distance_between(
+                    this_distance = self._distance_between(
                             self.nodes[local_node[edge[0]]],
-                            self.nodes[local_node[edge[1]]]))
-        # find the minimum and average
-        if not element_edge:
+                            self.nodes[local_node[edge[1]]])
+                    total += this_distance
+                    if this_distance < minimum:
+                        minimum = this_distance
+        if edge_count == 0:
             return [float('nan')] * 2
-        minimum = min(element_edge)
-        average = sum(element_edge) / len(element_edge)
-        return [minimum, average]
+        return [minimum, total / edge_count]
 
         # delete any element blocks which are not of dimension 3
         new_ids = []
@@ -8686,8 +8711,7 @@ class ExodusModel(object):
     def build_hex8_cube(self,
                         element_block_id='auto',
                         extents=1.0,
-                        divisions=3,
-                        element_block_name=''):
+                        divisions=3):
         """
         Create an element block in the shape of a cube.
 
@@ -8748,8 +8772,7 @@ class ExodusModel(object):
         # now create the actual block
         self.create_element_block(element_block_id,
                                   ['hex8', dimx * dimy * dimz, 8, 0],
-                                  connectivity=connectivity,
-                                  element_block_name=element_block_name)
+                                  connectivity=connectivity)
 
     def count_degenerate_elements(self, element_block_ids='all'):
         """
@@ -8815,6 +8838,51 @@ class ExodusModel(object):
                               if master[x] == x))
         return block_count
 
+    def _get_mating_faces(self,
+                          side_set_members_one,
+                          side_set_members_two):
+        """
+        Return the mating faces between the side sets.
+
+        This will only return the faces within 'side_set_members_one'.
+
+        """
+        # order by element block
+        members_one_by_block = self._order_element_faces_by_block(
+            side_set_members_one)
+        members_two_by_block = self._order_element_faces_by_block(
+            side_set_members_two)
+        # find the nodes within set two and create a set of them
+        faces_to_match = set()
+        for id_, members in members_two_by_block.items():
+            nodes_per_element = self.get_nodes_per_element(id_)
+            connectivity = self.get_connectivity(id_)
+            face_mapping = self._get_face_mapping_from_id(id_)
+            for element_index, face_index in members:
+                local_node = connectivity[
+                    element_index * nodes_per_element:
+                    (element_index + 1) * nodes_per_element]
+                face_nodes = [local_node[x]
+                              for x in face_mapping[face_index][1]]
+                faces_to_match.add(tuple(sorted(face_nodes)))
+        # now look through the original list for duplicates
+        mating_faces = []
+        for id_, members in members_one_by_block.items():
+            nodes_per_element = self.get_nodes_per_element(id_)
+            connectivity = self.get_connectivity(id_)
+            face_mapping = self._get_face_mapping_from_id(id_)
+            for element_index, face_index in members:
+                local_node = connectivity[
+                    element_index * nodes_per_element:
+                    (element_index + 1) * nodes_per_element]
+                face_nodes = [local_node[x]
+                              for x in face_mapping[face_index][1]]
+                if tuple(sorted(face_nodes)) in faces_to_match:
+                    mating_faces.append((id_, element_index, face_index))
+        return mating_faces
+        # now create a sorted list with (nodes, member)
+        # now find duplicate entries
+
     def _detailed_summary(self):
         """Print a detailed summary of the model."""
         # if no timesteps are defined, create one so we can store field values
@@ -8841,9 +8909,13 @@ class ExodusModel(object):
             element_count))
         # print out element block info
         extents = self.get_element_block_extents(ids)
-        extents = ['%g to %g' % (x[0], x[1]) for x in extents]
-        extents = '[' + ', '.join(extents) + ']'
-        print '- Extents are %s' % extents
+        print '- Extents are:'
+        for d in range(3):
+            print '  - %s: %g to %g, range of %g' % (
+                'XYZ'[d],
+                extents[d][0],
+                extents[d][1],
+                extents[d][1] - extents[d][0])
         # print center of mass
         cg = self.get_element_block_centroid(ids,
                                              element_volume_field_name,
@@ -8861,6 +8933,9 @@ class ExodusModel(object):
         area = self.get_side_set_area(side_set_id)
         self.delete_side_set(side_set_id)
         print('- Total surface area is {}'.format(area))
+        # print number of disconnected blocks
+        connected_blocks = self.count_disconnected_blocks('all')
+        print('- Contains {} disconnected blocks'.format(connected_blocks))
         # print element edge length stats
         minimum, average = self.get_element_edge_length_info(ids)
         print '- Average element edge length is %g' % average
@@ -8872,7 +8947,7 @@ class ExodusModel(object):
         # find external faces for each element block
         external_faces = {id_: self._get_external_element_faces(id_)
                           for id_ in self.get_element_block_ids()}
-        # print info
+        # print info on each element block
         for id_ in self.get_element_block_ids():
             print
             name = self.get_element_block_name(id_)
@@ -8888,9 +8963,13 @@ class ExodusModel(object):
                                                      if dim != -1
                                                      else '')
             extents = self.get_element_block_extents(id_)
-            extents = ['%g to %g' % (x[0], x[1]) for x in extents]
-            extents = '[' + ', '.join(extents) + ']'
-            print '- Extents are %s' % extents
+            print '- Extents are:'
+            for d in range(3):
+                print '  - %s: %g to %g, range of %g' % (
+                    'XYZ'[d],
+                    extents[d][0],
+                    extents[d][1],
+                    extents[d][1] - extents[d][0])
             # print center of mass
             cg = self.get_element_block_centroid(id_,
                                                  element_volume_field_name,
@@ -8907,6 +8986,9 @@ class ExodusModel(object):
             area = self.get_side_set_area(side_set_id)
             self.delete_side_set(side_set_id)
             print '- Total surface area is %g' % area
+            # print number of disconnected blocks
+            connected_blocks = self.count_disconnected_blocks(id_)
+            print('- Contains {} disconnected blocks'.format(connected_blocks))
             # print element edge length stats
             if dim == 3:
                 minimum, average = self.get_element_edge_length_info(id_)
@@ -8922,13 +9004,13 @@ class ExodusModel(object):
             header_output = False
             for other_id in self.get_element_block_ids():
                 if other_id == id_:
-                    pass
-                faces = self._get_external_element_faces([id_, other_id])
-                adjoining_faces = set(external_faces[id_]) - set(faces)
-                if adjoining_faces:
-                    remaining_faces -= adjoining_faces
+                    continue
+                mating_faces = self._get_mating_faces(external_faces[id_],
+                                                      external_faces[other_id])
+                if mating_faces:
+                    remaining_faces -= set(mating_faces)
                     side_set_id = self._new_side_set_id()
-                    self.create_side_set(side_set_id, list(adjoining_faces))
+                    self.create_side_set(side_set_id, list(mating_faces))
                     area = self.get_side_set_area(side_set_id)
                     self.delete_side_set(side_set_id)
                     if not header_output:
@@ -8936,7 +9018,7 @@ class ExodusModel(object):
                         header_output = True
                     print('  - To element block %d though %d faces '
                           '(area of %g)'
-                          % (other_id, len(adjoining_faces), area))
+                          % (other_id, len(mating_faces), area))
             if header_output and remaining_faces:
                 remaining_faces = list(remaining_faces)
                 side_set_id = self._new_side_set_id()
@@ -8948,5 +9030,62 @@ class ExodusModel(object):
                       % (len(remaining_faces), area))
             if not header_output:
                 print '- Not connected to any element blocks'
+        # print node set info
+        print
+        print('NODE SET INFO')
+        print
+        ids = self.get_node_set_ids()
+        print('There are {} node sets defined.'.format(len(ids)))
+        for id_ in ids:
+            print
+            name = self.get_node_set_name(id_)
+            print('Node set ID {}{}:'.format(
+                id_,
+                ' ("{}")'.format(name) if name else ''))
+            print('- Contains {} members'.format(
+                len(self.get_node_set_members(id_))))
+            field_names = self.get_node_set_field_names(id_)
+            if field_names:
+                print('- Has {} fields defined:'.format(len(field_names)))
+                for name in field_names:
+                    print('  - "{}"'.format(name))
+        # print node set info
+        print
+        print('SIDE SET INFO')
+        print
+        ids = self.get_side_set_ids()
+        print('There are {} side sets defined.'.format(len(ids)))
+        for id_ in ids:
+            print
+            name = self.get_side_set_name(id_)
+            print('Side set ID {}{}:'.format(
+                id_,
+                ' ("{}")'.format(name) if name else ''))
+            members = self.get_side_set_members(id_)
+            member_count = len(members)
+            print('- Contains {} members'.format(member_count))
+            parent_blocks = sorted(set(x[0] for x in members))
+            parent_string = ', '.join('{}'.format(x) for x in parent_blocks)
+            print('- Parent element block IDs: {}'.format(parent_string))
+            face_types = []
+            members_by_block = self._order_element_faces_by_block(members)
+            for block_id, these_members in members_by_block.items():
+                element_type = self._get_element_type(block_id)
+                if not self._is_standard_element_type(element_type):
+                    face_types.append('unknown')
+                    continue
+                face_mapping = self._get_face_mapping_from_id(block_id)
+                face_indices = set(x[1] for x in these_members)
+                face_types.extend(face_mapping[x][0] for x in face_indices)
+            face_types = sorted(set(face_types))
+            print('- Face types: {}'.format(', '.join(face_types)))
+            area = self.get_side_set_area(id_)
+            print('- Total area of {}'.format(area))
+            field_names = self.get_side_set_field_names(id_)
+            if field_names:
+                print('- Has {} fields defined:'.format(len(field_names)))
+                for name in field_names:
+                    print('  - "{}"'.format(name))
+        # delete temporary timestep if created
         if timestep_created:
             self.delete_timestep(0.0)
