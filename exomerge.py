@@ -447,8 +447,8 @@ class ExodusModel(object):
         # we can't find the name, so find names close to it to offer as
         # suggestions
         # filter names by closeness
-        names = {x: difflib.SequenceMatcher(None, x, name).ratio()
-                 for x in names}
+        names = dict((x, difflib.SequenceMatcher(None, x, name).ratio())
+                     for x in names)
         sorted_names = sorted(names.iteritems(),
                               key=operator.itemgetter(1),
                               reverse=True)
