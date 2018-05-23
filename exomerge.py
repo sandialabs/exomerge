@@ -56,7 +56,6 @@ import struct
 import bisect
 import colorsys
 import difflib
-import operator
 
 # import exodus module
 # (exodus.py should be in the same directory as this file)
@@ -378,7 +377,7 @@ class ExodusModel(object):
             exodus_text = exodus_text.replace('. ', '.  ')
             exodus_text = exodus_text.replace('.   ', '.  ')
             exodus_text = textwrap.fill(exodus_text, width=79)
-            print('\n{}\n'.format(exodus_text))
+            print('\n%s\n' % exodus_text)
             SHOW_BANNER = False
         # list of [x, y, z] coordinates for each node
         self.nodes = []
@@ -447,13 +446,11 @@ class ExodusModel(object):
         # we can't find the name, so find names close to it to offer as
         # suggestions
         # filter names by closeness
-        names = dict((x, difflib.SequenceMatcher(None, x, name).ratio())
-                     for x in names)
-        sorted_names = sorted(names.iteritems(),
-                              key=operator.itemgetter(1),
-                              reverse=True)
-        # get the closest 5 matching function names
-        closest_names = [x[0] for x in sorted_names[0:5]]
+        close_names = [(difflib.SequenceMatcher(None, x, name).ratio(), x)
+                       for x in names]
+        close_names.sort(reverse=True)
+        close_names = close_names[:5]
+        close_names = ['%s [%d%%]' % (x[1], x[0] * 100) for x in close_names]
         # in an interactive shell, just issue a warning, else
         # issue an error an exit
         if self._is_interactive():
@@ -463,7 +460,7 @@ class ExodusModel(object):
         call('Function not found.',
              'The function "%s" does not exist.  Perhaps you meant to '
              'call one of the following functions:\n\n%s'
-             % (name, '\n'.join(closest_names)))
+             % (name, '\n'.join(close_names)))
 
     @staticmethod
     def _is_interactive():
@@ -844,9 +841,9 @@ class ExodusModel(object):
                     for values in all_values:
                         self._assert(len(values) == member_count)
             # verify self.side_sets
-            element_count = {
-                id_: info[1]
-                for id_, (_, info, _, _) in self.element_blocks.items()}
+            element_count = dict(
+                (id_, info[1])
+                for id_, (_, info, _, _) in self.element_blocks.items())
             for _, members, fields in self.side_sets.values():
                 member_count = len(members)
                 if members:
@@ -6001,8 +5998,8 @@ class ExodusModel(object):
         temporary_element_block_id = self._new_element_block_id()
         # create translation list for elements
         # new_block[old_block_id] = (new_block_id, element_offset)
-        new_block_info = {id_: (id_, 0)
-                          for id_ in self.get_element_block_ids()}
+        new_block_info = dict((id_, (id_, 0))
+                              for id_ in self.get_element_block_ids())
         for id_ in element_block_ids:
             new_block_info[id_] = (temporary_element_block_id, new_info[1])
             new_info[1] += self.element_blocks[id_][1][1]
@@ -6077,9 +6074,9 @@ class ExodusModel(object):
             unique_node_indices = sorted(set(old_connectivity))
             new_node_indices = []
             self._duplicate_nodes(unique_node_indices, new_node_indices)
-            new_node_indices = {x: y
-                                for x, y
-                                in zip(unique_node_indices, new_node_indices)}
+            new_node_indices = dict((x, y)
+                                    for x, y in zip(unique_node_indices,
+                                                    new_node_indices))
             new_connectivity = [new_node_indices[x]
                                 for x in old_connectivity]
         else:
@@ -6781,8 +6778,8 @@ class ExodusModel(object):
         ['X', 'Z', 'Fred']
 
         """
-        original_case = {x.lower(): x
-                         for x in original_list}
+        original_case = dict((x.lower(), x)
+                             for x in original_list)
         if len(original_case) != len(original_list):
             self._warning('Ambiguous string case.',
                           'There are multiple strings in the list which have '
@@ -8904,56 +8901,56 @@ class ExodusModel(object):
         ids = self.get_element_block_ids()
         element_block_count = len(ids)
         element_count = self.get_element_count(ids)
-        print('- Model contains {} element blocks and {} elements'.format(
-            element_block_count,
-            element_count))
+        print('- Model contains %d element blocks and %d elements'
+              % (element_block_count, element_count))
         # print out element block info
-        extents = self.get_element_block_extents(ids)
-        print '- Extents are:'
-        for d in range(3):
-            print '  - %s: %g to %g, range of %g' % (
-                'XYZ'[d],
-                extents[d][0],
-                extents[d][1],
-                extents[d][1] - extents[d][0])
-        # print center of mass
-        cg = self.get_element_block_centroid(ids,
-                                             element_volume_field_name,
-                                             element_centroid_field_names)
-        cg = ['%g' % x for x in cg]
-        print '- Center of volume is at [%s]' % (', '.join(cg))
-        # print total volume
-        volume = self.get_element_block_volume(ids,
-                                               element_volume_field_name)
-        print('- Total volume is {}'.format(volume))
-        # print total surface area
-        side_set_id = self._new_side_set_id()
-        self.create_side_set(side_set_id,
-                             self._get_external_element_faces(ids))
-        area = self.get_side_set_area(side_set_id)
-        self.delete_side_set(side_set_id)
-        print('- Total surface area is {}'.format(area))
-        # print number of disconnected blocks
-        connected_blocks = self.count_disconnected_blocks('all')
-        print('- Contains {} disconnected blocks'.format(connected_blocks))
-        # print element edge length stats
-        minimum, average = self.get_element_edge_length_info(ids)
-        print '- Average element edge length is %g' % average
-        print '- Smallest element edge length is %g' % minimum
-        node_distance = self.get_closest_node_distance()
-        print '- The closest node pair is %g apart' % node_distance
+        if self.get_element_block_ids():
+            extents = self.get_element_block_extents(ids)
+            print '- Extents are:'
+            for d in range(3):
+                print('  - %s: %g to %g, range of %g'
+                      % ('XYZ'[d],
+                         extents[d][0],
+                         extents[d][1],
+                         extents[d][1] - extents[d][0]))
+            # print center of mass
+            cg = self.get_element_block_centroid(ids,
+                                                 element_volume_field_name,
+                                                 element_centroid_field_names)
+            cg = ['%g' % x for x in cg]
+            print '- Center of volume is at [%s]' % (', '.join(cg))
+            # print total volume
+            volume = self.get_element_block_volume(ids,
+                                                   element_volume_field_name)
+            print('- Total volume is %g' % volume)
+            # print total surface area
+            side_set_id = self._new_side_set_id()
+            self.create_side_set(side_set_id,
+                                 self._get_external_element_faces(ids))
+            area = self.get_side_set_area(side_set_id)
+            self.delete_side_set(side_set_id)
+            print('- Total surface area is %d' % area)
+            # print number of disconnected blocks
+            connected_blocks = self.count_disconnected_blocks('all')
+            print('- Contains %d disconnected blocks' % (connected_blocks))
+            # print element edge length stats
+            minimum, average = self.get_element_edge_length_info(ids)
+            print '- Average element edge length is %g' % average
+            print '- Smallest element edge length is %g' % minimum
+        if self.nodes:
+            node_distance = self.get_closest_node_distance()
+            print '- The closest node pair is %g apart' % node_distance
         print
         print 'ELEMENT BLOCK INFO'
         # find external faces for each element block
-        external_faces = {id_: self._get_external_element_faces(id_)
-                          for id_ in self.get_element_block_ids()}
+        external_faces = dict((id_, self._get_external_element_faces(id_))
+                              for id_ in self.get_element_block_ids())
         # print info on each element block
         for id_ in self.get_element_block_ids():
             print
             name = self.get_element_block_name(id_)
-            print('Element block ID {}{}:'.format(
-                id_,
-                ' ("{}")'.format(name) if name else ''))
+            print('Element block ID %d%s:'
+                  % (id_, (' "%s"' % (name)) if name else ''))
             dim = self.get_element_block_dimension(id_)
             element_count = self.get_element_count(id_)
             element_type = self._get_element_type(id_)
@@ -8988,7 +8985,7 @@ class ExodusModel(object):
             print '- Total surface area is %g' % area
             # print number of disconnected blocks
             connected_blocks = self.count_disconnected_blocks(id_)
-            print('- Contains {} disconnected blocks'.format(connected_blocks))
+            print('- Contains %d disconnected blocks' % (connected_blocks))
             # print element edge length stats
             if dim == 3:
                 minimum, average = self.get_element_edge_length_info(id_)
@@ -9035,38 +9032,36 @@ class ExodusModel(object):
         print('NODE SET INFO')
         print
         ids = self.get_node_set_ids()
-        print('There are {} node sets defined.'.format(len(ids)))
+        print('There are %d node sets defined.' % len(ids))
         for id_ in ids:
             print
             name = self.get_node_set_name(id_)
-            print('Node set ID {}{}:'.format(
-                id_,
-                ' ("{}")'.format(name) if name else ''))
-            print('- Contains {} members'.format(
-                len(self.get_node_set_members(id_))))
+            print('Node set ID %d%s:'
+                  % (id_, (' "%s"' % (name)) if name else ''))
+            print('- Contains %d members'
+                  % (len(self.get_node_set_members(id_))))
             field_names = self.get_node_set_field_names(id_)
             if field_names:
-                print('- Has {} fields defined:'.format(len(field_names)))
+                print('- Has %d fields defined:' % (len(field_names)))
                 for name in field_names:
-                    print('  - "{}"'.format(name))
+                    print('  - "%s"' % (name))
         # print node set info
         print
         print('SIDE SET INFO')
         print
         ids = self.get_side_set_ids()
-        print('There are {} side sets defined.'.format(len(ids)))
+        print('There are %d side sets defined.' % (len(ids)))
         for id_ in ids:
             print
             name = self.get_side_set_name(id_)
-            print('Side set ID {}{}:'.format(
-                id_,
-                ' ("{}")'.format(name) if name else ''))
+            print('Side set ID %d%s:'
+                  % (id_, (' "%s"' % (name)) if name else ''))
             members = self.get_side_set_members(id_)
             member_count = len(members)
-            print('- Contains {} members'.format(member_count))
+            print('- Contains %d members' % (member_count))
             parent_blocks = sorted(set(x[0] for x in members))
-            parent_string = ', '.join('{}'.format(x) for x in parent_blocks)
-            print('- Parent element block IDs: {}'.format(parent_string))
+            parent_string = ', '.join('%s' % (x) for x in parent_blocks)
+            print('- Parent element block IDs: %s' % (parent_string))
             face_types = []
             members_by_block = self._order_element_faces_by_block(members)
             for block_id, these_members in members_by_block.items():
@@ -9078,14 +9073,14 @@ class ExodusModel(object):
                 face_indices = set(x[1] for x in these_members)
                 face_types.extend(face_mapping[x][0] for x in face_indices)
             face_types = sorted(set(face_types))
-            print('- Face types: {}'.format(', '.join(face_types)))
+            print('- Face types: %s' % (', '.join(face_types)))
             area = self.get_side_set_area(id_)
-            print('- Total area of {}'.format(area))
+            print('- Total area of %g' % (area))
             field_names = self.get_side_set_field_names(id_)
             if field_names:
-                print('- Has {} fields defined:'.format(len(field_names)))
+                print('- Has %d fields defined:' % (len(field_names)))
                 for name in field_names:
-                    print('  - "{}"'.format(name))
+                    print('  - "%s"' % (name))
         # delete temporary timestep if created
         if timestep_created:
             self.delete_timestep(0.0)
