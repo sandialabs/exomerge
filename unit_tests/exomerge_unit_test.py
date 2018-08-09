@@ -1764,6 +1764,7 @@ class ExomergeUnitTester:
               % (len(unit_tests), len(public_functions)))
         # If a test exists that doesn't match a public function, issue a
         # warning message and remove that unit test.
+        print('\nVerifying each unit test matches a public exomerge function.')
         unmatched = []
         matched_unit_tests = []
         for unit_test in unit_tests:
@@ -1780,6 +1781,7 @@ class ExomergeUnitTester:
         unit_tests = matched_unit_tests
         # If a public function exists without a unit test, issue a warning
         # message
+        print('\nVerifying public function has a matching unit test.')
         unmatched = []
         unit_test_names = [x[0] for x in unit_tests]
         for name in public_functions:
@@ -1792,6 +1794,7 @@ class ExomergeUnitTester:
             print('')
         # make sure unit tests call the appropriate function
         # i.e. _test_create_nodes better call create_nodes somewhere
+        print('\nVerifying each unit test calls the appropriate function.')
         bad_unit_tests = []
         for name, function in unit_tests:
             target = eval('exomerge.ExodusModel.' + name[6:])
