@@ -1,10 +1,10 @@
 """
-Exomerge is a lightweight Python interface manipulating ExodusII files.
+Exomerge is a lightweight Python interface for manipulating ExodusII files.
 
-Copyright 2017 Sandia Corporation.  Under the terms of Contract
-DE-AC04-94AL85000, there is a non-exclusive license for use of this work by or
-on behalf of the U.S. Government.  Export of this program may require a
-license from the United States Government.
+Copyright 2018 National Technology and Engineering Solutions of Sandia.  Under
+the terms of Contract DE-NA-0003525, there is a non-exclusive license for use
+of this work by or on behalf of the U.S. Government.  Export of this program
+may require a license from the United States Government.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -41,7 +41,7 @@ contact the author.
 
 """
 
-# import necessary modules
+# import standard modules
 import string
 import textwrap
 import sys
@@ -56,13 +56,14 @@ import struct
 import bisect
 import colorsys
 import difflib
+import operator
 
 # import exodus module
 # (exodus.py should be in the same directory as this file)
 import exodus
 
 # informal version number of this module
-__version__ = 8.2
+__version__ = 8.4
 VERSION = __version__
 
 # contact person for issues
@@ -446,11 +447,13 @@ class ExodusModel(object):
         # we can't find the name, so find names close to it to offer as
         # suggestions
         # filter names by closeness
-        close_names = [(difflib.SequenceMatcher(None, x, name).ratio(), x)
-                       for x in names]
-        close_names.sort(reverse=True)
-        close_names = close_names[:5]
-        close_names = ['%s [%d%%]' % (x[1], x[0] * 100) for x in close_names]
+        names = dict((x, difflib.SequenceMatcher(None, x, name).ratio())
+                     for x in names)
+        sorted_names = sorted(names.iteritems(),
+                              key=operator.itemgetter(1),
+                              reverse=True)
+        # get the closest 5 matching function names
+        closest_names = [x[0] for x in sorted_names[0:5]]
         # in an interactive shell, just issue a warning, else
         # issue an error an exit
         if self._is_interactive():
@@ -460,7 +463,7 @@ class ExodusModel(object):
         call('Function not found.',
              'The function "%s" does not exist.  Perhaps you meant to '
              'call one of the following functions:\n\n%s'
-             % (name, '\n'.join(close_names)))
+             % (name, '\n'.join(closest_names)))
 
     @staticmethod
     def _is_interactive():
@@ -926,9 +929,9 @@ class ExodusModel(object):
         max_header_width = max(len(x[0]) for x in messages)
         width = max(width, max_header_width + 20 + 6)
         # print the top frame after a blank line
-        print
-        print '*' * width
-        print '*' + (' ' * (width - 2)) + '*'
+        print('')
+        print('*' * width)
+        print('*' + (' ' * (width - 2)) + '*')
         # process each message
         # *  Header: Text             *
         for message in messages:
@@ -953,10 +956,10 @@ class ExodusModel(object):
                     line = '%s%s' % (' ' * len(header), text[i])
                 if len(line) < width - 6:
                     line += ' ' * (width - 6 - len(line))
-                print '*  %s  *' % (line)
-            print '*' + (' ' * (width - 2)) + '*'
+                print('*  %s  *' % (line))
+            print('*' + (' ' * (width - 2)) + '*')
         # print the bottom frame
-        print '*' * width
+        print('*' * width)
 
     @staticmethod
     def _get_trace(omitted_frames=1):
@@ -1320,10 +1323,9 @@ class ExodusModel(object):
     @staticmethod
     def _is_displacement_field_prefix(name):
         """Return 'True' if name is a displacement field prefix."""
-        return (name == 'disp' or
-                name == 'displacement' or
-                name == 'displ' or
-                name == 'displace')
+        options = ['displacement']
+        if len(name) >= 3 and name.lower() == options[:len(name)]:
+            return True
 
     def _get_displacement_field_prefix(self):
         """
@@ -1997,7 +1999,8 @@ class ExodusModel(object):
             [element_block_id],
             single=True)
         element_type = self._get_element_type(element_block_id)
-        element_type = self._get_standard_element_type(element_type)
+        element_type = self._get_standard_element_type(element_type,
+                                                       warning=False)
         if element_type in self.DIMENSION:
             return self.DIMENSION[element_type]
         else:
@@ -2087,7 +2090,7 @@ class ExodusModel(object):
                 self.global_variables[name][index] = extreme
                 if calculate_block_id:
                     self.global_variables[
-                        name + '_block_id'][index] = extreme_block_id
+                        name + '_block_id'][index] = float(extreme_block_id)
                 if calculate_location:
                     coords = self._get_coordinates_at_time(
                         self.timesteps[index])
@@ -4412,7 +4415,7 @@ class ExodusModel(object):
         # do not allow duplicates
         new_members = self._remove_duplicates(
             node_set_members,
-            preserve_order=False)
+            preserve_order=True)
         if len(new_members) != len(node_set_members):
             self._warning('Duplicate nodes in set.',
                           'The node set member list contains multiple copies '
@@ -4443,7 +4446,7 @@ class ExodusModel(object):
         new_nodes = self._remove_duplicates(
             new_node_set_members,
             other_list=members,
-            preserve_order=False)
+            preserve_order=True)
         if len(new_nodes) != len(new_node_set_members):
             self._warning('Duplicates nodes in set',
                           'The node set already contains some of the nodes '
@@ -4639,7 +4642,7 @@ class ExodusModel(object):
             self._exists_warning(side_set_id, 'side set')
         unique_members = self._remove_duplicates(
             side_set_members,
-            preserve_order=False)
+            preserve_order=True)
         if len(unique_members) != len(side_set_members):
             self._warning('Duplicate faces in set.',
                           'The face set member list contains multiple copies '
@@ -4673,7 +4676,7 @@ class ExodusModel(object):
         new_members = self._remove_duplicates(
             new_side_set_members,
             other_list=members,
-            preserve_order=False)
+            preserve_order=True)
         if len(new_members) != len(new_side_set_members):
             self._warning('Duplicates faces in set',
                           'The node set already contains some nodes of the '
@@ -5852,18 +5855,18 @@ class ExodusModel(object):
         >>> model.summarize()
 
         """
-        print 'The model contains the following:'
-        print '  %d elements' % self.get_element_count()
-        print '  %d timesteps' % len(self.timesteps)
-        print '  %d global variables' % len(self.global_variables)
-        print '  %d nodes' % len(self.nodes)
-        print '  %d node fields' % len(self.node_fields)
-        print '  %d element blocks' % len(self.element_blocks)
-        print '  %d element fields' % len(self.get_element_field_names())
-        print '  %d node sets' % len(self.node_sets)
-        print '  %d node set fields' % len(self.get_node_set_field_names())
-        print '  %d side sets' % len(self.side_sets)
-        print '  %d side set fields' % len(self.get_side_set_field_names())
+        print('The model contains the following:')
+        print('  %d elements' % (self.get_element_count()))
+        print('  %d timesteps' % (len(self.timesteps)))
+        print('  %d global variables' % (len(self.global_variables)))
+        print('  %d nodes' % (len(self.nodes)))
+        print('  %d node fields' % (len(self.node_fields)))
+        print('  %d element blocks' % (len(self.element_blocks)))
+        print('  %d element fields' % (len(self.get_element_field_names())))
+        print('  %d node sets' % (len(self.node_sets)))
+        print('  %d node set fields' % (len(self.get_node_set_field_names())))
+        print('  %d side sets' % (len(self.side_sets)))
+        print('  %d side set fields' % (len(self.get_side_set_field_names())))
 
     def _get_element_block_fields(self, element_block_id):
         """Return the dictionary of element block field values."""
@@ -6657,11 +6660,12 @@ class ExodusModel(object):
             self._error('Unknown interpolation technique',
                         'The specified interpolation technique "%s" is not '
                         'recognized.' % interpolation)
+        # create the new timestep
+        self.create_timestep(timestep)
         # use the given formula to create the new step
         # formula = list of (timestep_index, contribution)
         formula = [(self._get_internal_timestep_index(x[0]), x[1])
                    for x in formula]
-        self.create_timestep(timestep)
         this_index = self._get_internal_timestep_index(timestep)
         # element fields, side set fields, node set fields
         for thing in itertools.chain(self.element_blocks.values(),
@@ -6686,6 +6690,25 @@ class ExodusModel(object):
             new_value = sum([values[x[0]] * x[1] for x in formula])
             values[this_index] = new_value
 
+    def _find_new_timestep_index(self, new_timestep):
+        """
+        Return the index at which to create the new timestep.
+
+        This returns the index to keep the list in monotonically increasing
+        order.
+
+        """
+        # find the index at which to to insert this
+        # if the new step is above all the others, put it at the end
+        higher_times = [x
+                        for x in self.timesteps
+                        if x > new_timestep]
+        # if the new time is higher than all existing times, then add it to the
+        # end
+        if not higher_times:
+            return len(self.timesteps)
+        return self.timesteps.index(min(higher_times))
+
     def copy_timestep(self, timestep, new_timestep):
         """
         Create a copy of an existing timestep.
@@ -6706,21 +6729,26 @@ class ExodusModel(object):
         if self.timestep_exists(new_timestep):
             self._exists_warning(new_timestep, 'timestep')
             return
-        self.timesteps.append(new_timestep)
-        index = self._get_internal_timestep_index(timestep)
+        # find the index at which to insert the new timestep
+        new_index = self._find_new_timestep_index(new_timestep)
+        # get the index of the existing timestep prior to adding the new
+        # timestep
+        old_index = self._get_internal_timestep_index(timestep)
+        # insert the new timestep
+        self.timesteps.insert(new_index, new_timestep)
         # adjust node_fields
         for field in self.node_fields.values():
-            field.append(list(field[index]))
+            field.insert(new_index, list(field[old_index]))
         # adjust self.global_variables
         for values in self.global_variables.values():
-            values.append(values[index])
+            values.insert(new_index, values[old_index])
         # adjust self.element_blocks, self.node_sets, self.side_sets
         for thing in itertools.chain(self.element_blocks.values(),
                                      self.node_sets.values(),
                                      self.side_sets.values()):
             fields = thing[-1]
             for field in fields.values():
-                field.append(list(field[index]))
+                field.insert(new_index, list(field[old_index]))
 
     def create_timestep(self, timestep):
         """
@@ -6736,19 +6764,21 @@ class ExodusModel(object):
         if self.timestep_exists(timestep):
             self._exists_warning(timestep, 'timestep')
             return
+        # find the index at which to to insert this
+        timestep_index = self._find_new_timestep_index(timestep)
         # add the given timestep
-        self.timesteps.append(timestep)
+        self.timesteps.insert(timestep_index, timestep)
         # adjust self.node_fields
         for name, field in self.node_fields.items():
             value = self._get_default_field_value(name)
-            field.append([value] * len(self.nodes))
+            field.insert(timestep_index, [value] * len(self.nodes))
         # adjust element blocks fields
         for id_ in self.get_element_block_ids():
             element_count = self.get_element_count(id_)
             fields = self._get_element_block_fields(id_)
             for name, field_values in fields.items():
                 value = self._get_default_field_value(name)
-                field_values.append([value] * element_count)
+                field_values.insert(timestep_index, [value] * element_count)
         # adjust side set fields
         for id_ in self.get_side_set_ids():
             members = self.get_side_set_members(id_)
@@ -6756,7 +6786,7 @@ class ExodusModel(object):
             member_count = len(members)
             for name, values in fields.items():
                 value = self._get_default_field_value(name)
-                values.append([value] * member_count)
+                values.insert(timestep_index, [value] * member_count)
         # adjust node set fields
         for id_ in self.get_node_set_ids():
             members = self.get_node_set_members(id_)
@@ -6764,10 +6794,10 @@ class ExodusModel(object):
             member_count = len(members)
             for name, values in fields.items():
                 value = self._get_default_field_value(name)
-                values.append([value] * member_count)
+                values.insert(timestep_index, [value] * member_count)
         # adjust self.global_variables
         for name, values in self.global_variables.items():
-            values.append(self._get_default_field_value(name))
+            values.insert(timestep_index, self._get_default_field_value(name))
 
     def _replace_name_case(self, new_list, original_list):
         """
@@ -7710,14 +7740,27 @@ class ExodusModel(object):
                     'Cannot import element block \"%d\" since it already '
                     'exists in the model.' % element_block_id)
         # create new nodes used in this file
-        # note: new_used_nodes is 1-based
         node_offset = len(self.nodes)
-        new_used_nodes = []
-        for element_block_id in element_block_ids:
-            new_used_nodes += list(
-                exodus_file.get_elem_connectivity(
-                    element_block_id)[0])
-        new_used_nodes = list(set(new_used_nodes))
+        # store nodes we are going to import
+        # if we're importing all element blocks, then import all nodes
+        # else only import nodes in the element blocks we're choosing
+        # note that if there are no element blocks, this means we import all
+        # nodes
+        # note: new_used_nodes is 1-based
+        if element_block_ids == sorted(file_element_block_ids):
+            new_used_nodes = range(1, exodus_file.num_nodes() + 1)
+        else:
+            new_used_nodes = [False] * exodus_file.num_nodes()
+            # add nodes in blocks we are importing
+            for element_block_id in element_block_ids:
+                connectivity = exodus_file.get_elem_connectivity(
+                    element_block_id)[0]
+                for i in connectivity:
+                    new_used_nodes[i - 1] = True
+            # save indices for nodes we want to import
+            new_used_nodes = [i + 1
+                              for i, x in enumerate(new_used_nodes)
+                              if x]
         # get new node coordinates
         new_nodes = []
         file_coords = [list(x) for x in exodus_file.get_coords()]
@@ -8256,7 +8299,7 @@ class ExodusModel(object):
     def _get_thickness_from_volume_and_area(self,
                                             volume,
                                             area):
-        """Return the approximate thickness given a volume and area."""
+        """Return the thickness of a disk given the volume and area."""
         # max phi (for a sphere) is 6^(-1/3) * pi^(-1/6)
         phi = math.pow(volume, 1 / 3.0) / math.pow(area, 1 / 2.0)
         # find a solution, if possible
@@ -8342,10 +8385,11 @@ class ExodusModel(object):
 
     def get_element_block_extents(self, element_block_ids='all'):
         """
-        Return the extents of the element blocks as a list in the format
+        Return the extents of the element blocks as a list.
+
+        The results are returned in the following format:
         [[min_x, max_x], [min_y, max_y], [min_z, max_z]]
 
-        [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
         """
         element_block_ids = self._format_element_block_id_list(
             element_block_ids,
@@ -8888,25 +8932,25 @@ class ExodusModel(object):
         if not self.timesteps:
             timestep_created = True
             self.create_timestep(0.0)
-        # calculate element volume field
-        element_volume_field_name = self._new_element_field_name(1)
-        self.calculate_element_volumes(element_volume_field_name)
-        # calculate element centroid field
-        element_centroid_field_names = self._new_element_field_name(3)
-        self.calculate_element_centroids(element_centroid_field_names)
         # print out general info
-        print
-        print 'MODEL SUMMARY'
-        print
+        print('\nMODEL SUMMARY\n')
         ids = self.get_element_block_ids()
         element_block_count = len(ids)
         element_count = self.get_element_count(ids)
         print('- Model contains %d element blocks and %d elements'
               % (element_block_count, element_count))
+        # if any elements exist...
+        if element_count:
+            # calculate element volume field
+            element_volume_field_name = self._new_element_field_name(1)
+            self.calculate_element_volumes(element_volume_field_name)
+            # calculate element centroid field
+            element_centroid_field_names = self._new_element_field_name(3)
+            self.calculate_element_centroids(element_centroid_field_names)
         # print out element block info
-        if self.get_element_block_ids():
+        if element_count:
             extents = self.get_element_block_extents(ids)
-            print '- Extents are:'
+            print('- Extents are:')
             for d in range(3):
                 print('  - %s: %g to %g, range of %g'
                       % ('XYZ'[d],
@@ -8918,7 +8962,7 @@ class ExodusModel(object):
                                                  element_volume_field_name,
                                                  element_centroid_field_names)
             cg = ['%g' % x for x in cg]
-            print '- Center of volume is at [%s]' % (', '.join(cg))
+            print('- Center of volume is at [%s]' % (', '.join(cg)))
             # print total volume
             volume = self.get_element_block_volume(ids,
                                                    element_volume_field_name)
@@ -8935,16 +8979,17 @@ class ExodusModel(object):
             print('- Contains %d disconnected blocks' % (connected_blocks))
             # print element edge length stats
             minimum, average = self.get_element_edge_length_info(ids)
-            print '- Average element edge length is %g' % average
-            print '- Smallest element edge length is %g' % minimum
+            print('- Average element edge length is %g' % (average))
+            print('- Smallest element edge length is %g' % (minimum))
         if self.nodes:
             node_distance = self.get_closest_node_distance()
-            print '- The closest node pair is %g apart' % node_distance
+            print('- The closest node pair is %g apart' % (node_distance))
         print
-        print 'ELEMENT BLOCK INFO'
+        print('ELEMENT BLOCK INFO')
         # find external faces for each element block
-        external_faces = dict((id_, self._get_external_element_faces(id_))
-                              for id_ in self.get_element_block_ids())
+        if element_count:
+            external_faces = dict((id_, self._get_external_element_faces(id_))
+                                  for id_ in self.get_element_block_ids())
         # print info on each element block
         for id_ in self.get_element_block_ids():
             print
@@ -8954,47 +8999,51 @@ class ExodusModel(object):
             dim = self.get_element_block_dimension(id_)
             element_count = self.get_element_count(id_)
             element_type = self._get_element_type(id_)
-            print '- Contains %d "%s"%s elements' % (element_count,
-                                                     element_type,
-                                                     ' %d-dimensional' % dim
-                                                     if dim != -1
-                                                     else '')
+            dim_name = ' %d-dimensional' % dim if dim != -1 else ''
+            print('- Contains %d "%s"%s elements'
+                  % (element_count,
+                     element_type,
+                     dim_name))
+            # if no elements, skip detailed info on this block
+            if not element_count:
+                continue
             extents = self.get_element_block_extents(id_)
-            print '- Extents are:'
+            print('- Extents are:')
             for d in range(3):
-                print '  - %s: %g to %g, range of %g' % (
-                    'XYZ'[d],
-                    extents[d][0],
-                    extents[d][1],
-                    extents[d][1] - extents[d][0])
+                print('  - %s: %g to %g, range of %g'
+                      % ('XYZ'[d],
+                         extents[d][0],
+                         extents[d][1],
+                         extents[d][1] - extents[d][0]))
             # print center of mass
             cg = self.get_element_block_centroid(id_,
                                                  element_volume_field_name,
                                                  element_centroid_field_names)
             cg = ['%g' % x for x in cg]
-            print '- Center of volume is at [%s]' % (', '.join(cg))
+            print('- Center of volume is at [%s]' % (', '.join(cg)))
             # print total volume
             volume = self.get_element_block_volume(id_,
                                                    element_volume_field_name)
-            print '- Total volume is %g' % volume
+            print('- Total volume is %g' % (volume))
             # print total surface area
             side_set_id = self._new_side_set_id()
             self.create_side_set(side_set_id, external_faces[id_])
             area = self.get_side_set_area(side_set_id)
             self.delete_side_set(side_set_id)
-            print '- Total surface area is %g' % area
+            print('- Total surface area is %g' % (area))
             # print number of disconnected blocks
-            connected_blocks = self.count_disconnected_blocks(id_)
-            print('- Contains %d disconnected blocks' % (connected_blocks))
+            # TODO: fix bug in count_disconnected_blocks
+            # connected_blocks = self.count_disconnected_blocks(id_)
+            # print('- Contains %d disconnected blocks' % (connected_blocks))
             # print element edge length stats
             if dim == 3:
                 minimum, average = self.get_element_edge_length_info(id_)
-                print '- Average element edge length is %g' % average
-                print '- Smallest element edge length is %g' % minimum
+                print('- Average element edge length is %g' % (average))
+                print('- Smallest element edge length is %g' % (minimum))
                 # print thickness
                 thickness = self._get_thickness_from_volume_and_area(volume,
                                                                      area)
-                print '- Approximate thickness is %g' % thickness
+                print('- Approximate thickness is %g' % (thickness))
             # print surface connectivity to other blocks
             # find faces connected to other blocks
             remaining_faces = set(external_faces[id_])
@@ -9011,7 +9060,7 @@ class ExodusModel(object):
                     area = self.get_side_set_area(side_set_id)
                     self.delete_side_set(side_set_id)
                     if not header_output:
-                        print '- Connected to the following element blocks:'
+                        print('- Connected to the following element blocks:')
                         header_output = True
                     print('  - To element block %d though %d faces '
                           '(area of %g)'
@@ -9026,13 +9075,11 @@ class ExodusModel(object):
                       '(area of %g)'
                       % (len(remaining_faces), area))
             if not header_output:
-                print '- Not connected to any element blocks'
+                print('- Not connected to any element blocks')
         # print node set info
-        print
-        print('NODE SET INFO')
-        print
+        print('\nNODE SET INFO\n')
         ids = self.get_node_set_ids()
-        print('There are %d node sets defined.' % len(ids))
+        print('There are %d node sets defined.' % (len(ids)))
         for id_ in ids:
             print
             name = self.get_node_set_name(id_)
@@ -9046,9 +9093,7 @@ class ExodusModel(object):
                 for name in field_names:
                     print('  - "%s"' % (name))
         # print node set info
-        print
-        print('SIDE SET INFO')
-        print
+        print('\nSIDE SET INFO\n')
         ids = self.get_side_set_ids()
         print('There are %d side sets defined.' % (len(ids)))
         for id_ in ids:

@@ -1,10 +1,10 @@
 """
 This file performs unit tests of functions within Exomerge.
 
-Copyright 2016 Sandia Corporation.  Under the terms of Contract
-DE-AC04-94AL85000, there is a non-exclusive license for use of this work by or
-on behalf of the U.S. Government.  Export of this program may require a
-license from the United States Government.
+Copyright 2018 National Technology and Engineering Solutions of Sandia.  Under
+the terms of Contract DE-NA-0003525, there is a non-exclusive license for use
+of this work by or on behalf of the U.S. Government.  Export of this program
+may require a license from the United States Government.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -42,9 +42,37 @@ import copy
 import os
 import sys
 import re
+import math
 
 # import the exomerge module
 import exomerge
+
+
+def compares_equal_with_nan(one, two):
+    """
+    Return True if the two objects are equal, assuming NaN == NaN.
+
+    Objects can include lists, dictionaries, floats, integers, strings, and/or
+    floats.  They can be nested.
+
+    """
+    if type(one) != type(two):
+        return False
+    if type(one) is dict:
+        if sorted(one.keys()) != sorted(two.keys()):
+            return False
+        return all(compares_equal_with_nan(one[x], two[x])
+                   for x in one.keys())
+    elif type(one) is list:
+        return (len(one) == len(two) and
+                all(compares_equal_with_nan(x, y)
+                    for x, y in zip(one, two)))
+    else:
+        # string, integer, or float
+        if type(one) is float:
+            return one == two or (math.isnan(one) and math.isnan(two))
+        else:
+            return one == two
 
 
 class DummyFile(object):
@@ -902,7 +930,7 @@ class ExomergeUnitTester:
         self.model.get_length_scale()
 
     def _test_get_input_deck(self):
-        self.model.info_records = ['sadf',
+        self.model.info_records = ['asdf',
                                    'begin',
                                    '  begin statement',
                                    '  end statement',
@@ -1294,6 +1322,44 @@ class ExomergeUnitTester:
             return False
         self.remaining_io_tests -= 1
         self.model.export_model('temp.e')
+        # make sure the exported model is equal
+        model2 = exomerge.import_model('temp.e')
+        model2.qa_records = model2.qa_records[:-1]
+        one = self.model
+        two = model2
+        assert one.nodes == two.nodes
+        assert one.timesteps == two.timesteps
+        # There is some odd bug here where characters get added sometimes
+        # but not often.  To avoid this, we don't compare info records.  This
+        # does not appear to be a bug within exomerge.py or exodus.py.  It may
+        # be within ctypes, but more likely is within the exodus library
+        # itself.
+        # exported: ['asdf', 'begin', '  begin statement', ...]
+        # imported: ['asdf\x7f\xf8', 'begin', '  begin statement', ...]
+        # assert one.info_records == two.info_records
+        assert one.title == two.title
+        assert one.qa_records == two.qa_records
+        assert one.title == two.title
+        assert compares_equal_with_nan(one.node_fields,
+                                       two.node_fields)
+        assert compares_equal_with_nan(one.global_variables,
+                                       two.global_variables)
+        assert compares_equal_with_nan(one.side_sets,
+                                       two.side_sets)
+        assert compares_equal_with_nan(one.node_sets,
+                                       two.node_sets)
+        # There is a bug/feature within exodus.py where element types are
+        # renamed to uppercase.  To avoid this, we don't compare the info
+        # field within each block
+        for id_ in one.element_blocks.keys():
+            assert compares_equal_with_nan(one.element_blocks[id_][0],
+                                           two.element_blocks[id_][0])
+            # assert compares_equal_with_nan(one.element_blocks[id_][1],
+            #                                two.element_blocks[id_][1])
+            assert compares_equal_with_nan(one.element_blocks[id_][2],
+                                           two.element_blocks[id_][2])
+            assert compares_equal_with_nan(one.element_blocks[id_][3],
+                                           two.element_blocks[id_][3])
         os.remove('temp.e')
 
     def _test_export_stl_file(self):
@@ -1695,8 +1761,8 @@ class ExomergeUnitTester:
                                                 inspect.ismethod):
             if not function.startswith('_'):
                 public_functions.append(function)
-        print('We found %d unit tests and %d public functions.' %
-              (len(unit_tests), len(public_functions)))
+        print('We found %d unit tests and %d public functions.'
+              % (len(unit_tests), len(public_functions)))
         # If a test exists that doesn't match a public function, issue a
         # warning message and remove that unit test.
         unmatched = []
@@ -1711,7 +1777,7 @@ class ExomergeUnitTester:
             print('\nWARNING: Found %d unit test(s) without a matching '
                   'public function\nUnit tests:\n  %s'
                   % (len(unmatched), '\n  '.join(unmatched)))
-            print
+            print('')
         unit_tests = matched_unit_tests
         # If a public function exists without a unit test, issue a warning
         # message
@@ -1724,7 +1790,7 @@ class ExomergeUnitTester:
             print('\nWARNING: Found %d public functions without a matching '
                   'unit test\nPublic functions:\n  %s'
                   % (len(unmatched), '\n  '.join(unmatched)))
-            print
+            print('')
         # make sure unit tests call the appropriate function
         # i.e. _test_create_nodes better call create_nodes somewhere
         bad_unit_tests = []
@@ -1736,7 +1802,7 @@ class ExomergeUnitTester:
             print('\nWARNING: Found %d unit tests which do not call their '
                   'corresponding public functions:\n  %s'
                   % (len(bad_unit_tests), '\n  '.join(bad_unit_tests)))
-            print
+            print('')
         # start off the model
         self.model = exomerge.import_model('exomerge_unit_test.e')
         # run for the given amount of walltime or the number of tests
@@ -1755,7 +1821,7 @@ class ExomergeUnitTester:
             tests += 1
             test = next_tests_to_run[0]
             del next_tests_to_run[0]
-            print '[%d] %s' % (tests, test[0])
+            print('[%d] %s' % (tests, test[0]))
             if test[1]() is None:
                 passed_tests.add(test[0])
             if tests % 123 == 0:
@@ -1766,13 +1832,11 @@ class ExomergeUnitTester:
             for (x, _) in unit_tests:
                 if x not in passed_tests:
                     untested.append(x)
-            print
-            print('WARNING: Some unit tests were unable to be run:\n  ' +
+            print('\nWARNING: Some unit tests were unable to be run:\n  ' +
                   '\n  '.join(untested))
-        print
-        print 'Ran %d tests in %g seconds.' % (tests, time.time() - start_time)
-        print
-        print 'Success'
+        print('\nRan %d tests in %g seconds.'
+              % (tests, time.time() - start_time))
+        print('\nSuccess')
 
 
 # if this module is executed (as opposed to imported), run the tests

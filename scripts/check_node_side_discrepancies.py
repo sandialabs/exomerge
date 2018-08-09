@@ -10,58 +10,51 @@
 import sys
 import re
 
+
 def running_sum(x):
-  tot = 0
-  for item in x:
-    tot += item
-    yield tot
+    total = 0
+    for item in x:
+        total += item
+        yield total
+
 
 def remove_single_quotes(line):
     in_single_quote = False
     in_double_quote = False
     last_was_backslash = False
-    last_was_r = False
-    in_raw_quote = False
     new_line = ''
     for x in line:
         # check for quote opening
         if not in_single_quote and not in_double_quote:
             if x == '\'':
                 in_single_quote = True
-                in_raw_quote = last_was_r
-                last_was_r = False
                 last_was_backslash = False
                 continue
             if x == '\"':
                 in_double_quote = True
-                in_raw_quote = last_was_r
-                last_was_r = False
                 last_was_backslash = False
                 continue
         # check for quote closing
         if in_single_quote and not last_was_backslash and x == '\'':
             in_single_quote = False
-            last_was_r = False
             last_was_backslash = False
             continue
         if in_double_quote and not last_was_backslash and x == '\"':
             in_double_quote = False
-            last_was_r = False
             last_was_backslash = False
             continue
         # if we're not in a quote, add it to the string
         if not in_single_quote and not in_double_quote:
             new_line += x
         if in_single_quote or in_double_quote:
-            last_was_r = x == False
             if not last_was_backslash:
                 last_was_backslash = x == '\\'
             else:
                 last_was_backslash = False
         else:
-            last_was_r = x == 'r'
             last_was_backslash = False
     return new_line
+
 
 filename = sys.argv[1]
 with open(filename) as f:
@@ -103,12 +96,12 @@ lines = new_lines
 
 # find indents
 indents = [len(x[1]) - len(x[1].lstrip(' '))
-          for x in lines]
+           for x in lines]
 
 # minimum indent to start checking
 
-opening_parenthesis = '([{'
-closing_parenthesis = ')]}'
+opening = '([{'
+closing = ')]}'
 
 # indent of node set opener
 node_set_function_indent = 9999
@@ -121,11 +114,11 @@ for indent, (line_number, line) in zip(indents, lines):
         side_set_function_indent = 9999
     # check for node_set opener
     if node_set_function_indent > indent:
-        if 'node_set' in line and not 'side_set' in line:
+        if 'node_set' in line and 'side_set' not in line:
             node_set_function_indent = indent
     # check for side_set opener
     if side_set_function_indent > indent:
-        if 'side_set' in line and not 'node_set' in line:
+        if 'side_set' in line and 'node_set' not in line:
             side_set_function_indent = indent
     # if in a node set opener, check for side_set call
     if node_set_function_indent <= indent:
@@ -143,16 +136,16 @@ for indent, (line_number, line) in zip(indents, lines):
     side_set_instances = [m.start() for m in re.finditer('side_set', line)]
     if not node_set_instances and not side_set_instances:
         continue
-    parenthesis_level = [1 if x in opening_parenthesis else -1 if x in closing_parenthesis else 0
+    parenthesis_level = [1 if x in opening else -1 if x in closing else 0
                          for x in line]
     parenthesis_level = list(running_sum(parenthesis_level))
     node_set_opener = [False]
     side_set_opener = [False]
     for i, x in enumerate(line):
         in_node_set_opener = any(node_set_opener[z]
-                                 for z in xrange(parenthesis_level[i])) 
+                                 for z in xrange(parenthesis_level[i]))
         in_side_set_opener = any(side_set_opener[z]
-                                 for z in xrange(parenthesis_level[i])) 
+                                 for z in xrange(parenthesis_level[i]))
         if parenthesis_level[i] >= len(node_set_opener):
             node_set_opener.append(False)
             side_set_opener.append(False)
