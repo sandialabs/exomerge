@@ -589,9 +589,7 @@ class ExodusModel(object):
             name = 'temp%d' % id_
         return name
 
-    def _delete_elements(self,
-                         element_block_id,
-                         element_indices):
+    def _delete_elements(self, element_block_id, element_indices):
         """
         Delete the specified elements from the given element block.
 
@@ -977,10 +975,7 @@ class ExodusModel(object):
             message += '\n'
         return message
 
-    def _bug(self,
-             short='Possible bug',
-             detailed='',
-             exit_code=1):
+    def _bug(self, short='Possible bug', detailed='', exit_code=1):
         """
         Print out an error message possibly caused by a bug and exit.
 
@@ -1001,10 +996,7 @@ class ExodusModel(object):
         self._print_message(messages)
         exit(exit_code)
 
-    def _error(self,
-               short='Unspecified error',
-               detailed='',
-               exit_code=1):
+    def _error(self, short='Unspecified error', detailed='', exit_code=1):
         """Print out an error message and exit."""
         messages = [('  ERROR: ', short)]
         if detailed:
@@ -1013,9 +1005,7 @@ class ExodusModel(object):
         self._print_message(messages)
         exit(exit_code)
 
-    def _warning(self,
-                 short='Unspecified warning',
-                 detailed=''):
+    def _warning(self, short='Unspecified warning', detailed=''):
         """Print out a warning message, but don't exit."""
         messages = [('WARNING: ', short)]
         if detailed:
@@ -1662,8 +1652,7 @@ class ExodusModel(object):
         for index in xrange(len(self.timesteps)):
             field[index] = list(element_interval_values)
 
-    def _get_coordinates_at_time(self,
-                                 timestep):
+    def _get_coordinates_at_time(self, timestep):
         """
         Return the node coordinates list at the given timestep.
 
@@ -1988,8 +1977,7 @@ class ExodusModel(object):
         eval_expression = re.sub(r'\^', '**', eval_expression)
         return eval_expression.strip()
 
-    def get_element_block_dimension(self,
-                                    element_block_id):
+    def get_element_block_dimension(self, element_block_id):
         """
         Return the dimension of elements within this element block.
 
@@ -2006,16 +1994,14 @@ class ExodusModel(object):
         else:
             return -1
 
-    def get_nodes_per_element(self,
-                              element_block_id):
+    def get_nodes_per_element(self, element_block_id):
         """Return the nodes per element in the given element block."""
         [element_block_id] = self._format_element_block_id_list(
             [element_block_id],
             single=True)
         return self.element_blocks[element_block_id][1][2]
 
-    def _get_element_type(self,
-                          element_block_id):
+    def _get_element_type(self, element_block_id):
         """
         Return the element type for the given element block.
 
@@ -2582,8 +2568,7 @@ class ExodusModel(object):
                 if name != name.lower():
                     self.rename_node_set_field(name, name.lower(), id_)
 
-    def _translate_element_blocks(self,
-                                  element_block_translation_list):
+    def _translate_element_blocks(self, element_block_translation_list):
         """
         Convert element blocks to a new element type.
 
@@ -2755,9 +2740,7 @@ class ExodusModel(object):
             self.rename_element_block(temporary_element_block_id,
                                       element_block_id)
 
-    def convert_element_blocks(self,
-                               element_block_ids,
-                               new_element_type):
+    def convert_element_blocks(self, element_block_ids, new_element_type):
         """Convert elements within a block to a new element type."""
         element_block_ids = self._format_element_block_id_list(
             element_block_ids)
@@ -2767,9 +2750,7 @@ class ExodusModel(object):
         # convert each block
         self._translate_element_blocks(conversion_list)
 
-    def _change_element_order(self,
-                              element_block_ids,
-                              target_order):
+    def _change_element_order(self, element_block_ids, target_order):
         """
         Convert elements to the given order.
 
@@ -2837,8 +2818,7 @@ class ExodusModel(object):
         # now translate the elements
         self._translate_element_blocks(conversion_list)
 
-    def make_elements_linear(self,
-                             element_block_ids='all'):
+    def make_elements_linear(self, element_block_ids='all'):
         """
         Convert elements in one or more element blocks to a linear type.
 
@@ -2850,8 +2830,7 @@ class ExodusModel(object):
         """
         self._change_element_order(element_block_ids, 1)
 
-    def make_elements_quadratic(self,
-                                element_block_ids='all'):
+    def make_elements_quadratic(self, element_block_ids='all'):
         """
         Convert elements in one or more element blocks to a quadratic type.
 
@@ -3073,9 +3052,7 @@ class ExodusModel(object):
             displacement_field_list.append(self.node_fields[this_name])
         return displacement_field_list
 
-    def _apply_displacements(self,
-                             timestep='last',
-                             scale_factor=1.0):
+    def _apply_displacements(self, timestep='last', scale_factor=1.0):
         """
         Apply the displacements to each node.
 
@@ -3110,10 +3087,7 @@ class ExodusModel(object):
                                        *displacement_values)]
         self.nodes = new_nodes
 
-    def _get_local_index(self,
-                         this_id,
-                         id_list,
-                         entity='entity'):
+    def _get_local_index(self, this_id, id_list, entity='entity'):
         """
         Return the local index corresponding to the given id.
 
@@ -3607,9 +3581,7 @@ class ExodusModel(object):
                         disp_y[timestep_index][index] = y
                         disp_z[timestep_index][index] = z
 
-    def _translate_nodes(self,
-                         offset,
-                         node_indices='all'):
+    def _translate_nodes(self, offset, node_indices='all'):
         """Translate nodes by the given offset."""
         (dx, dy, dz) = [float(x) for x in offset]
         if node_indices == 'all':
@@ -3675,9 +3647,7 @@ class ExodusModel(object):
         """
         self._translate_nodes(offset)
 
-    def scale_geometry(self,
-                       scale_factor,
-                       adjust_displacement_field='auto'):
+    def scale_geometry(self, scale_factor, adjust_displacement_field='auto'):
         """
         Scale the model by the given factor.
 
@@ -3974,8 +3944,7 @@ class ExodusModel(object):
                                      self.get_side_set_ids,
                                      self.side_sets)
 
-    def get_side_set_name(self,
-                          side_set_id):
+    def get_side_set_name(self, side_set_id):
         """Return the name of a side set."""
         [side_set_id] = self._format_side_set_id_list([side_set_id],
                                                       single=True)
@@ -3987,15 +3956,13 @@ class ExodusModel(object):
                       for x in self.side_sets.values()
                       if x[0])
 
-    def get_side_set_members(self,
-                             side_set_id):
+    def get_side_set_members(self, side_set_id):
         """Return the members of a side set."""
         [side_set_id] = self._format_side_set_id_list([side_set_id],
                                                       single=True)
         return self.side_sets[side_set_id][1]
 
-    def _get_side_set_fields(self,
-                             side_set_id):
+    def _get_side_set_fields(self, side_set_id):
         """Return the dictionary of side set fields."""
         [side_set_id] = self._format_side_set_id_list([side_set_id],
                                                       single=True)
@@ -4040,9 +4007,7 @@ class ExodusModel(object):
         entity_objects[new_entity_name] = entity_objects[entity_name]
         del entity_objects[entity_name]
 
-    def rename_node_field(self,
-                          node_field_name,
-                          new_node_field_name):
+    def rename_node_field(self, node_field_name, new_node_field_name):
         """
         Rename a node field.
 
@@ -4072,9 +4037,7 @@ class ExodusModel(object):
                             self.get_global_variable_names,
                             self.global_variables)
 
-    def rename_element_block(self,
-                             element_block_id,
-                             new_element_block_id):
+    def rename_element_block(self, element_block_id, new_element_block_id):
         """
         Change an element block id or name.
 
@@ -4123,9 +4086,7 @@ class ExodusModel(object):
                 new_members.append(member)
             members[:] = new_members
 
-    def rename_node_set(self,
-                        node_set_id,
-                        new_node_set_id):
+    def rename_node_set(self, node_set_id, new_node_set_id):
         """
         Change a node set id or name.
 
@@ -4160,9 +4121,7 @@ class ExodusModel(object):
                             self.get_node_set_ids,
                             self.node_sets)
 
-    def rename_side_set(self,
-                        side_set_id,
-                        new_side_set_id):
+    def rename_side_set(self, side_set_id, new_side_set_id):
         """
         Change a side set id or name.
 
@@ -4343,9 +4302,7 @@ class ExodusModel(object):
                 new_field_values.append([value] * member_count)
             fields[side_set_field_name] = new_field_values
 
-    def create_node_set_from_side_set(self,
-                                      node_set_id,
-                                      side_set_id):
+    def create_node_set_from_side_set(self, node_set_id, side_set_id):
         """
         Create a node set from a side set.
 
@@ -4360,9 +4317,7 @@ class ExodusModel(object):
         self.create_node_set(node_set_id, node_set_members)
 
     @staticmethod
-    def _remove_duplicates(item_list,
-                           other_list=None,
-                           preserve_order=False):
+    def _remove_duplicates(item_list, other_list=None, preserve_order=False):
         """
         Return a list with duplicates removed.
 
@@ -4393,9 +4348,7 @@ class ExodusModel(object):
                 appeared.add(item)
         return unique_list
 
-    def create_node_set(self,
-                        node_set_id,
-                        node_set_members=None):
+    def create_node_set(self, node_set_id, node_set_members=None):
         """
         Create a node side from the list of node indices.
 
@@ -4424,9 +4377,7 @@ class ExodusModel(object):
         # add the new set
         self.node_sets[node_set_id] = ['', new_members, {}]
 
-    def add_nodes_to_node_set(self,
-                              node_set_id,
-                              new_node_set_members):
+    def add_nodes_to_node_set(self, node_set_id, new_node_set_members):
         """
         Add nodes to an existing node set.
 
@@ -4617,9 +4568,7 @@ class ExodusModel(object):
                           'No external element faces satisfied the given '
                           'expression.  An empty side set was created.')
 
-    def create_side_set(self,
-                        side_set_id,
-                        side_set_members=None):
+    def create_side_set(self, side_set_id, side_set_members=None):
         """
         Create a side set from the given element faces.
 
@@ -4650,9 +4599,7 @@ class ExodusModel(object):
                           'once.')
         self.side_sets[side_set_id] = ['', unique_members, {}]
 
-    def add_faces_to_side_set(self,
-                              side_set_id,
-                              new_side_set_members):
+    def add_faces_to_side_set(self, side_set_id, new_side_set_members):
         """
         Add the given faces to the side set.
 
@@ -4838,9 +4785,7 @@ class ExodusModel(object):
                               'of the given element blocks.  It cannot be '
                               'deleted.' % element_field_name)
 
-    def delete_node_set_field(self,
-                              node_set_field_names,
-                              node_set_ids='all'):
+    def delete_node_set_field(self, node_set_field_names, node_set_ids='all'):
         """
         Delete one or more node set fields.
 
@@ -4868,9 +4813,7 @@ class ExodusModel(object):
                               'of the given node sets.  It cannot be '
                               'deleted.' % name)
 
-    def delete_side_set_field(self,
-                              side_set_field_names,
-                              side_set_ids='all'):
+    def delete_side_set_field(self, side_set_field_names, side_set_ids='all'):
         """
         Delete one or more side set fields.
 
@@ -4908,9 +4851,7 @@ class ExodusModel(object):
         """
         return global_variable_name in self.global_variables
 
-    def side_set_field_exists(self,
-                              side_set_field_name,
-                              side_set_ids='all'):
+    def side_set_field_exists(self, side_set_field_name, side_set_ids='all'):
         """
         Return 'True' if the side set field exists on the side sets.
 
@@ -4925,9 +4866,7 @@ class ExodusModel(object):
                 return False
         return True
 
-    def node_set_field_exists(self,
-                              node_set_field_name,
-                              node_set_ids='all'):
+    def node_set_field_exists(self, node_set_field_name, node_set_ids='all'):
         """
         Return 'True' if the node set field is defined on the node sets.
 
@@ -5169,9 +5108,7 @@ class ExodusModel(object):
             face = self._rotate_face(face, face_type)
         return best, best_count
 
-    def _get_internal_faces(self,
-                            element_block_ids='all',
-                            set_of_nodes=None):
+    def _get_internal_faces(self, element_block_ids='all', set_of_nodes=None):
         """
         Return a list of internal element faces.
 
@@ -5605,9 +5542,7 @@ class ExodusModel(object):
                 # replace field values with generated values
                 element_field[timestep_index] = element_field_values
 
-    def _find_member_indices_to_keep(self,
-                                     all_members,
-                                     members_to_delete):
+    def _find_member_indices_to_keep(self, all_members, members_to_delete):
         """
         Given a list of items and a list of items to delete from that list,
         return a list of indices to keep.
@@ -5634,9 +5569,7 @@ class ExodusModel(object):
                 indices_to_keep.append(i)
         return indices_to_keep
 
-    def _delete_side_set_members(self,
-                                 side_set_id,
-                                 side_set_members):
+    def _delete_side_set_members(self, side_set_id, side_set_members):
         """
         Delete the specified members from the given node set.
 
@@ -5661,9 +5594,7 @@ class ExodusModel(object):
         # delete members
         members[:] = [members[x] for x in indices_to_keep]
 
-    def _delete_node_set_members(self,
-                                 node_set_id,
-                                 node_set_members):
+    def _delete_node_set_members(self, node_set_id, node_set_members):
         """
         Delete the specified members from the given node set.
 
@@ -6142,8 +6073,7 @@ class ExodusModel(object):
                       'inverting an element of type "%s".' % element_type)
         return new_face
 
-    def _invert_element_blocks(self,
-                               element_block_ids):
+    def _invert_element_blocks(self, element_block_ids):
         """
         Invert all elements within an element block.
 
@@ -6173,10 +6103,7 @@ class ExodusModel(object):
                                           member[1],
                                           new_face_indices[member[2]])
 
-    def create_element_block(self,
-                             element_block_id,
-                             info,
-                             connectivity=None):
+    def create_element_block(self, element_block_id, info, connectivity=None):
         """
         Create a new element block.
 
@@ -6291,9 +6218,7 @@ class ExodusModel(object):
             'The specified %s "%s" does not exist on %s %s.'
             % (entity, str(name), base_entity, str(base_name)))
 
-    def create_global_variable(self,
-                               global_variable_name,
-                               value='auto'):
+    def create_global_variable(self, global_variable_name, value='auto'):
         """
         Create a new global variable.
 
@@ -7350,8 +7275,7 @@ class ExodusModel(object):
             group_to_merge[master] = sorted(set(group) - set([master]))
         self._merge_node_groups(group_to_merge)
 
-    def delete_duplicate_elements(self,
-                                  element_block_ids='all'):
+    def delete_duplicate_elements(self, element_block_ids='all'):
         """
         Delete duplicate elements.
 
@@ -7380,8 +7304,7 @@ class ExodusModel(object):
                     elements.add(element)
             self._delete_elements(id_, duplicates)
 
-    def _find_close_nodes(self,
-                          tolerance):
+    def _find_close_nodes(self, tolerance):
         """
         Return groups of nodes that are close to one another.
 
@@ -8296,9 +8219,7 @@ class ExodusModel(object):
                                       delete_orphaned_nodes=False)
         return total_area
 
-    def _get_thickness_from_volume_and_area(self,
-                                            volume,
-                                            area):
+    def _get_thickness_from_volume_and_area(self, volume, area):
         """Return the thickness of a disk given the volume and area."""
         # max phi (for a sphere) is 6^(-1/3) * pi^(-1/6)
         phi = math.pow(volume, 1 / 3.0) / math.pow(area, 1 / 2.0)
@@ -8452,8 +8373,7 @@ class ExodusModel(object):
             new_block_ids.append(new_id)
         return new_block_ids
 
-    def _get_element_edge_indices(self,
-                                  element_type):
+    def _get_element_edge_indices(self, element_type):
         """
         Return a list of element edges for the given element type.
 
@@ -8581,8 +8501,7 @@ class ExodusModel(object):
         # return the result
         return [minimum, average]
 
-    def _get_closest_point_distance_brute(self,
-                                          points):
+    def _get_closest_point_distance_brute(self, points):
         """Return the distance between the two closest points."""
         point_count = len(points)
         dist = sys.float_info.max
@@ -8592,10 +8511,7 @@ class ExodusModel(object):
                                                         points[j]))
         return dist
 
-    def _get_closest_point_distance(self,
-                                    points,
-                                    sorting_coord=0,
-                                    trials=0):
+    def _get_closest_point_distance(self, points, sorting_coord=0, trials=0):
         """Return the distance between the two closest points."""
         # handle cases of 3 or less points by brute force
         point_count = len(points)
@@ -8678,9 +8594,7 @@ class ExodusModel(object):
             closest_distance = float('nan')
         return closest_distance
 
-    def _input_check_error(self,
-                           argument,
-                           format):
+    def _input_check_error(self, argument, format):
         """
         Issue an error that the argument is not of the expected format.
 
@@ -8702,9 +8616,7 @@ class ExodusModel(object):
                     'Expected type: %s'
                     % (argument_string, format_string))
 
-    def _input_check(self,
-                     argument,
-                     format):
+    def _input_check(self, argument, format):
         """
         Check a variable for the expected format and issue an error if the
         format is not as expected.
@@ -8815,8 +8727,7 @@ class ExodusModel(object):
                                   ['hex8', dimx * dimy * dimz, 8, 0],
                                   connectivity=connectivity)
 
-    def count_degenerate_elements(self,
-                                  element_block_ids='all'):
+    def count_degenerate_elements(self, element_block_ids='all'):
         """
         Return the number of degenerate elements in the given element blocks.
 
@@ -8840,8 +8751,7 @@ class ExodusModel(object):
                     degenerate_element_count += 1
         return degenerate_element_count
 
-    def count_disconnected_blocks(self,
-                                  element_block_ids='all'):
+    def count_disconnected_blocks(self, element_block_ids='all'):
         """
         Count the number of disconnected blocks.
 
@@ -8886,9 +8796,7 @@ class ExodusModel(object):
         block_count = sum(1 for x in nodes if master[x] == x)
         return block_count
 
-    def _get_mating_faces(self,
-                          side_set_members_one,
-                          side_set_members_two):
+    def _get_mating_faces(self, side_set_members_one, side_set_members_two):
         """
         Return the mating faces between the side sets.
 
