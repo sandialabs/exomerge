@@ -8815,7 +8815,8 @@ class ExodusModel(object):
                                   ['hex8', dimx * dimy * dimz, 8, 0],
                                   connectivity=connectivity)
 
-    def count_degenerate_elements(self, element_block_ids='all'):
+    def count_degenerate_elements(self,
+                                  element_block_ids='all'):
         """
         Return the number of degenerate elements in the given element blocks.
 
@@ -8840,9 +8841,9 @@ class ExodusModel(object):
         return degenerate_element_count
 
     def count_disconnected_blocks(self,
-                                  element_block_ids):
+                                  element_block_ids='all'):
         """
-        Count the number of disconnected blocks in the element block.
+        Count the number of disconnected blocks.
 
         A disconnected block is a group of elements which are connected to
         each other through one or more nodes.
@@ -8861,22 +8862,28 @@ class ExodusModel(object):
             for i in xrange(element_count):
                 local_node = connectivity[i * nodes_per_element:
                                           (i + 1) * nodes_per_element]
-                low = min(master[x] for x in local_node)
-                while master[low] != low:
-                    low = master[low]
+                # find lowest index master out of these
+                low = min(local_node)
                 for x in local_node:
-                    master[x] = low
+                    this_low = x
+                    while this_low != master[this_low]:
+                        this_low = master[this_low]
+                    low = min(low, this_low)
+                # now set the current master to the lowest index found
+                for x in local_node:
+                    this_low = x
+                    while this_low != master[this_low]:
+                        this_low = master[this_low]
+                        master[this_low] = low
+                    master[this_low] = low
         # now make sure master node list is one-deep
         for i in nodes:
-            while master[i] != master[master[i]]:
-                master[i] = master[master[i]]
+            master[i] = master[master[i]]
         # double check that master node list is one-deep
         for i in nodes:
             assert master[i] == master[master[i]]
-        # count the number of masters
-        block_count = len(set(x
-                              for x in nodes
-                              if master[x] == x))
+        # count the number of master nodes
+        block_count = sum(1 for x in nodes if master[x] == x)
         return block_count
 
     def _get_mating_faces(self,
@@ -9032,9 +9039,8 @@ class ExodusModel(object):
             self.delete_side_set(side_set_id)
             print('- Total surface area is %g' % (area))
             # print number of disconnected blocks
-            # TODO: fix bug in count_disconnected_blocks
-            # connected_blocks = self.count_disconnected_blocks(id_)
-            # print('- Contains %d disconnected blocks' % (connected_blocks))
+            connected_blocks = self.count_disconnected_blocks(id_)
+            print('- Contains %d disconnected blocks' % (connected_blocks))
             # print element edge length stats
             if dim == 3:
                 minimum, average = self.get_element_edge_length_info(id_)
