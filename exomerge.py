@@ -8161,11 +8161,11 @@ class ExodusModel(object):
         for id_ in element_block_ids:
             name, info, connectivity, fields = self.element_blocks[id_]
             new_file.put_elem_blk_info(id_, *info)
-            if name:
-                new_file.put_elem_blk_name(id_, name)
             # connectivity in file must be 1-based
             temp_connectivity = [x + 1 for x in connectivity]
             new_file.put_elem_connectivity(id_, temp_connectivity)
+            if name:
+                new_file.put_elem_blk_name(id_, name)
         # write element fields
         new_file.set_element_variable_number(len(element_field_names))
         for index, name in enumerate(element_field_names):
@@ -8198,14 +8198,14 @@ class ExodusModel(object):
         for id_ in side_set_ids:
             name = self.get_side_set_name(id_)
             members = self.get_side_set_members(id_)
-            if name:
-                new_file.put_side_set_name(id_, name)
             new_file.put_side_set_params(id_, len(members), 0)
             if members:
                 elements = [first_element[block_id] + index
                             for block_id, index, _ in members]
                 sides = [x[2] + 1 for x in members]
                 new_file.put_side_set(id_, elements, sides)
+            if name:
+                new_file.put_side_set_name(id_, name)
         # write side set fields
         new_file.set_side_set_variable_number(len(side_set_field_names))
         for index, name in enumerate(side_set_field_names):
@@ -8232,14 +8232,14 @@ class ExodusModel(object):
         # write node sets
         for id_ in node_set_ids:
             name = self.get_node_set_name(id_)
-            if name:
-                new_file.put_node_set_name(id_, name)
             members = self.get_node_set_members(id_)
             new_file.put_node_set_params(id_, len(members))
             if members:
                 # convert to 1-based indexing
                 temp_members = [x + 1 for x in members]
                 new_file.put_node_set(id_, temp_members)
+            if name:
+                new_file.put_node_set_name(id_, name)
         # write node set fields
         new_file.set_node_set_variable_number(len(node_set_field_names))
         for index, name in enumerate(node_set_field_names):
