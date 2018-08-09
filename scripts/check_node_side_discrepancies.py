@@ -60,7 +60,7 @@ filename = sys.argv[1]
 with open(filename) as f:
     lines = f.readlines()
 # append lines with starting line number
-lines = [[i, x.replace('\n', '')]
+lines = [[i + 1, x.replace('\n', '')]
          for i, x in enumerate(lines)]
 # TODO: strip out triple quotes
 
@@ -97,8 +97,6 @@ lines = new_lines
 # find indents
 indents = [len(x[1]) - len(x[1].lstrip(' '))
            for x in lines]
-
-# minimum indent to start checking
 
 opening = '([{'
 closing = ')]}'
