@@ -3662,10 +3662,10 @@ class ExodusModel(object):
 
     def _ensure_no_shared_nodes(self, element_block_ids):
         """
-        Ensure no nodes are shared between the group of element block ids
-        passed and all other element blocks.
+        Ensure no nodes are shared outside the given element blocks.
 
-        If nodes are shared, output an error message.
+        If nodes are shared between the given element blocks and all
+        other element block then an error message is output.
 
         """
         element_block_ids = self._format_element_block_id_list(
@@ -4172,11 +4172,14 @@ class ExodusModel(object):
                              element_block_ids='all',
                              value='auto'):
         """
-        Create an element field on the given element blocks and assign it a
-        default value.
+        Create an element field on one or more element blocks.
+
+        A default value can be passed.  If no default value is given, 0.0 will
+        be used if the element field appears to be a displacement field.
+        Otherwise, NaN will be used.
 
         Example:
-        >>> model.create_element_field('eqps', 0.0)
+        >>> model.create_element_field('eqps', value=0.0)
 
         """
         # warn if no timesteps are present
@@ -4212,6 +4215,10 @@ class ExodusModel(object):
         """
         Create a node field and assign it a default value.
 
+        A default value can be passed.  If no default value is given, 0.0 will
+        be used if the element field appears to be a displacement field.
+        Otherwise, NaN will be used.
+
         Example:
         >>> model.create_node_field('temperature', 298.15)
 
@@ -4237,8 +4244,11 @@ class ExodusModel(object):
                               node_set_ids='all',
                               value='auto'):
         """
-        Create a node set field on the given node sets and assign it a default
-        value.
+        Create a node set field on the given node sets.
+
+        A default value can be passed.  If no default value is given, 0.0 will
+        be used if the element field appears to be a displacement field.
+        Otherwise, NaN will be used.
 
         Example:
         >>> model.create_node_set_field('temperature', 13, 298.15)
@@ -5090,8 +5100,10 @@ class ExodusModel(object):
 
     def _minimum_face(self, face, face_type):
         """
-        Find a unique identifier for the given face by rotating it and finding
-        the minumum arrangement of nodes.
+        Find a unique identifier for the given face.
+
+        This finds the local face connectivity list and rotates it until the
+        minimum such list is found.
 
         """
         original = face
@@ -5428,12 +5440,14 @@ class ExodusModel(object):
                                             element_field_name,
                                             node_field_name='auto'):
         """
-        Convert an element field to a node field by performing an element
-        average.
+        Convert an element field to a node field by performing.
 
         For each node, the value of the field at that node will be the average
         of the values in every element which shares that node for elements on
         which the field is defined.
+
+        By default, the name of the node field will be the same as the element
+        field.
 
         Example:
         >>> model.convert_element_field_to_node_field('temperature')
@@ -5495,8 +5509,7 @@ class ExodusModel(object):
                                             element_field_name='auto',
                                             element_block_ids='all'):
         """
-        Convert a node field to an element field by performing a nodal
-        average.
+        Convert a node field to an element field.
 
         For each element, the value of the field at that element will be the
         average of the values in each node of that element.
@@ -5543,8 +5556,7 @@ class ExodusModel(object):
 
     def _find_member_indices_to_keep(self, all_members, members_to_delete):
         """
-        Given a list of items and a list of items to delete from that list,
-        return a list of indices to keep.
+        Return a list of indices to keep from the list.
 
         This will handle duplicate entries correctly.  Duplicate entries will
         either all be deleted or all be kept.  Each index will appear in the
@@ -5562,10 +5574,9 @@ class ExodusModel(object):
                           'will be ignored.'
                           % (len(invalid_entries)))
         # find members to delete
-        indices_to_keep = []
-        for i, x in enumerate(all_members):
-            if x not in members_to_delete_set:
-                indices_to_keep.append(i)
+        indices_to_keep = [i
+                           for i, x in enumerate(all_members)
+                           if x not in members_to_delete_set]
         return indices_to_keep
 
     def _delete_side_set_members(self, side_set_id, side_set_members):
@@ -6041,11 +6052,7 @@ class ExodusModel(object):
                     values.extend(new_values)
 
     def _get_inverted_connectivity(self, element_type):
-        """
-        Return the connectivity permutation required to invert an element of
-        the given element type.
-
-        """
+        """Return the connectivity pemutation to invert an element."""
         element_type = self._get_standard_element_type(element_type)
         if element_type not in self.INVERTED_CONNECTIVITY:
             self._error('Unknown inversion algorithm.',
@@ -6054,11 +6061,7 @@ class ExodusModel(object):
         return self.INVERTED_CONNECTIVITY[element_type]
 
     def _get_inverted_face_mapping(self, element_type):
-        """
-        Return the permutation of element faces that happens when an element of
-        the given type is inverted.
-
-        """
+        """Return the connectivity pemutation to invert an element face."""
         face_mapping = self._get_face_mapping(element_type)
         inversion_mapping = self._get_inverted_connectivity(element_type)
         original_face = [set(face) for _, face in face_mapping]
@@ -6073,10 +6076,7 @@ class ExodusModel(object):
         return new_face
 
     def _invert_element_blocks(self, element_block_ids):
-        """
-        Invert all elements within an element block.
-
-        """
+        """Invert all elements within one or more element blocks."""
         element_block_ids = self._format_element_block_id_list(
             element_block_ids)
         for id_ in element_block_ids:
@@ -6157,30 +6157,21 @@ class ExodusModel(object):
                 values.extend([default_value] * len(new_nodes))
 
     def _exists_error(self, name, entity):
-        """
-        Warn the user that something already exists and error out.
-
-        """
+        """Warn the user something already exists and exit."""
         self._error(
             entity[0].upper() + entity[1:] + ' already exists.',
             'The specified %s "%s" already exists.  This operation cannot '
             'be completed.' % (entity, str(name)))
 
     def _exists_warning(self, name, entity):
-        """
-        Warn the user that something already exists.
-
-        """
+        """Warn the user something already exists."""
         self._warning(
             entity[0].upper() + entity[1:] + ' already exists.',
             'The specified %s "%s" already exists.  Information may be '
             'overwritten.' % (entity, str(name)))
 
     def _exists_on_entity_warning(self, name, entity, base_name, base_entity):
-        """
-        Warn the user that something already exists on a given entity.
-
-        """
+        """Warn the user something already exists on a given entity."""
         self._warning(
             entity[0].upper() + entity[1:] + ' already exists.',
             'The specified %s "%s" already exists on %s %s.  Information may '
@@ -6188,30 +6179,21 @@ class ExodusModel(object):
             % (entity, str(name), base_entity, str(base_name)))
 
     def _missing_error(self, name, entity):
-        """
-        Tell the user that something does not exist and exit.
-
-        """
+        """Tell the user something does not exist and exit."""
         self._error(
             entity[0].upper() + entity[1:] + ' does not exist.',
             'The specified %s "%s" does not exist.'
             % (entity, str(name)))
 
     def _missing_warning(self, name, entity):
-        """
-        Warn the user that something does not exist.
-
-        """
+        """Warn the user something does not exist."""
         self._error(
             entity[0].upper() + entity[1:] + ' does not exist.',
             'The specified %s "%s" does not exist and will be ignored.'
             % (entity, str(name)))
 
     def _missing_on_entity_error(self, name, entity, base_name, base_entity):
-        """
-        Tell the user that something does not exist on a given entity and exit.
-
-        """
+        """Tell the user something does not exist on an entity and exit."""
         self._error(
             entity[0].upper() + entity[1:] + ' does not exist.',
             'The specified %s "%s" does not exist on %s %s.'
@@ -6496,8 +6478,7 @@ class ExodusModel(object):
 
     def create_interpolated_timestep(self, timestep, interpolation='cubic'):
         """
-        Create a new timestep by interpolating the solution of neighboring
-        steps.
+        Create a new timestep by interpolating neighboring steps.
 
         This does not extrapolate, so the given timestep to be interpolated
         must lie within the range of timesteps already defined.
@@ -6748,8 +6729,7 @@ class ExodusModel(object):
 
     def _sort_field_names(self, original_field_names):
         """
-        Sort field names in such a way that SIERRA will recognize multi-
-        component and multiple integration point values.
+        Return field names sorted in a SIERRA-friendly manner.
 
         In order for SIERRA to recognize vectors, tensors, and element fields
         with multiple integration points, fields must be sorted in a specific
@@ -6832,20 +6812,18 @@ class ExodusModel(object):
                 field_names[place:place] = sorted_field_names[name]
         return self._replace_name_case(field_names, original_field_names)
 
-    @staticmethod
-    def _reorder_list(the_list, index_permute):
+    def _reorder_list(self, the_list, new_index):
         """
-        Reorder a list by permuting the indices according to the given rule.
+        Reorder a list by permuting items.
 
-        index_permute is a list of length len(the_list) of new indices.
+        The item at index 0 in the original list is moved to index
+        'new_index[0]', and so on.
 
         """
         # ensure arguments are valid
-        assert sorted(index_permute) == range(len(the_list))
+        self._input_check(new_index, [list, len(the_list), int])
         # create new list
-        new_list = [the_list[x] for x in index_permute]
-        for i in xrange(len(index_permute)):
-            the_list[i] = new_list[i]
+        the_list[:] = [the_list[i] for i in new_index]
 
     def _sort_timesteps(self):
         """Sort timesteps so that they are in ascending order."""
@@ -6991,10 +6969,7 @@ class ExodusModel(object):
 
     @staticmethod
     def _get_reverse_index_map(index_map):
-        """
-        Find the reverse map for the given index mapping scheme.
-
-        """
+        """Return the reverse map for the given index mapping scheme."""
         reverse_index_map = [None] * len(index_map)
         for index, new_index in enumerate(index_map):
             reverse_index_map[new_index] = index
@@ -7002,37 +6977,27 @@ class ExodusModel(object):
 
     @staticmethod
     def _dot(vector_one, vector_two):
-        """
-        Take the dot product of two things.
-
-        """
+        """Return the dot product of two things."""
         return sum(a * b for a, b in zip(vector_one, vector_two))
 
     @staticmethod
     def _distance_squared_between(point_one, point_two):
-        """
-        Get the distance squared between two three-dimensional points.
-
-        """
+        """Return the distance squared between two three-dimensional points."""
         return ((point_two[0] - point_one[0]) ** 2 +
                 (point_two[1] - point_one[1]) ** 2 +
                 (point_two[2] - point_one[2]) ** 2)
 
     @staticmethod
     def _distance_between(point_one, point_two):
-        """
-        Get the distance between two three-dimensional points.
-
-        """
+        """Return the distance between two three-dimensional points."""
         return math.sqrt((point_two[0] - point_one[0]) ** 2 +
                          (point_two[1] - point_one[1]) ** 2 +
                          (point_two[2] - point_one[2]) ** 2)
 
     @staticmethod
-    def _values_match(test_value, list_of_values):
+    def _values_match(value, list_of_values):
         """
-        Return 'True' if 'list_of_values' is a list containing only
-        'test_value'.
+        Return True if the list contains no items apart from the given value.
 
         Example:
         >>> _values_match(0, [0, 0, 0])
@@ -7041,11 +7006,9 @@ class ExodusModel(object):
         False
 
         """
-        for value in list_of_values:
-            if value != test_value:
-                if not math.isnan(test_value) or not math.isnan(value):
-                    return False
-        return True
+        if type(value) is not float or not math.isnan(value):
+            return not any(x != value for x in list_of_values)
+        return not any(not math.isnan(x) for x in list_of_values)
 
     def _merge_node_groups(self, node_groups, suppress_warnings=False):
         """
@@ -7557,8 +7520,7 @@ class ExodusModel(object):
                      node_set_field_names='all',
                      side_set_field_names='all'):
         """
-        Import information (including element blocks, nodes, elements, side
-        sets, and node sets) from the given file.
+        Import information from an ExodusII file.
 
         This will add to the current model in memory, so multiple calls will
         act to merge files.  As a shortcut, one may use the
@@ -7962,7 +7924,7 @@ class ExodusModel(object):
                      side_set_field_names='auto',
                      node_set_field_names='auto'):
         """
-        Write out the current model to an ExodusII file.
+        Export the current model to an ExodusII file.
 
         Examples:
         >>> model.write_model('output.g')
@@ -8416,10 +8378,10 @@ class ExodusModel(object):
 
     def get_element_edge_length_info(self, element_block_ids='all'):
         """
-        Return the minimum and average element edge lengths within the given
-        element blocks.
+        Return the minimum and average element edge lengths.
 
-        The input element blocks must be of dimension 3.
+        Only edges within element in the specified element blocks are counted.
+        All element blocks specified must be 3-dimensional.
 
         The result is returned as [minimum, average].
 
@@ -8595,7 +8557,7 @@ class ExodusModel(object):
 
     def _input_check_error(self, argument, format):
         """
-        Issue an error that the argument is not of the expected format.
+        Report an error that the argument is not of the expected format.
 
         This is a helper function which gets called by _input_check in several
         places.
@@ -8617,8 +8579,7 @@ class ExodusModel(object):
 
     def _input_check(self, argument, format):
         """
-        Check a variable for the expected format and issue an error if the
-        format is not as expected.
+        Verify an argument is of the expected format.
 
         For example, to check if an argument is a list of 3 integers, set
         format=[list, 3, int]
@@ -8665,10 +8626,10 @@ class ExodusModel(object):
                         extents=1.0,
                         divisions=3):
         """
-        Create an element block in the shape of a cube.
+        Create an element block in the shape of a cuboid.
 
         Extent defines the extent of the block in the form
-        [[minx, maxx], [miny, maxy], [minz, maxz]].  If only one value per
+        '[[minx, maxx], [miny, maxy], [minz, maxz]]'.  If only one value per
         dimension is given, the minimum is assumed to be zero.  If a single
         value is given, it is assumed a cube with that edge length, with min=0
         for all dimensions.
@@ -8752,7 +8713,7 @@ class ExodusModel(object):
 
     def count_disconnected_blocks(self, element_block_ids='all'):
         """
-        Count the number of disconnected blocks.
+        Return the number of disconnected blocks.
 
         A disconnected block is a group of elements which are connected to
         each other through one or more nodes.
