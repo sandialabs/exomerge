@@ -62,7 +62,7 @@ import operator
 import exodus
 
 # informal version number of this module
-__version__ = 8.4
+__version__ = 8.5
 VERSION = __version__
 
 # contact person for issues
@@ -1312,9 +1312,10 @@ class ExodusModel(object):
     @staticmethod
     def _is_displacement_field_prefix(name):
         """Return 'True' if name is a displacement field prefix."""
-        options = ['displacement']
-        if len(name) >= 3 and name.lower() == options[:len(name)]:
+        default_name = 'displacement'
+        if len(name) >= 3 and name.lower() == default_name[:len(name)]:
             return True
+        return False
 
     def _get_displacement_field_prefix(self):
         """
